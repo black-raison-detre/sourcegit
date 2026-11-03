@@ -77,6 +77,28 @@ namespace SourceGit.ViewModels
                 parent = Preferences.Instance.FindNode(Groups[_selectedGroupIndex].Id);
             }
 
+            var svnRoot = Native.Svn.FindWorkingCopyRoot(_repoPath);
+            if (!string.IsNullOrEmpty(svnRoot))
+            {
+                var preferences = Preferences.Instance;
+                var executable = Native.Svn.ResolveExecutable(preferences.SvnInstallPath);
+                var info = await Task.Run(() => Native.Svn.GetWorkingCopyAsync(executable, preferences.SvnConfigDirectory, _repoPath));
+                if (info.Status != "Ready")
+                {
+                    var message = App.Text(info.Status is "InvalidWorkingCopy" or "NotWorkingCopy" ? "SVN.InvalidWorkingCopy" : $"SVN.Connection.{info.Status}");
+                    Models.Notification.Send(_pageId, $"{message}\n{info.Details}", true);
+                    return false;
+                }
+
+                var svnNode = preferences.FindOrAddNodeByRepositoryPath(info.WorkingCopyRoot, parent, true, false);
+                svnNode.IsSvn = true;
+                svnNode.Bookmark = _bookmark;
+                preferences.Save();
+                Welcome.Instance.Refresh();
+                svnNode.Open();
+                return true;
+            }
+
             var isBare = await new Commands.IsBareRepository(_repoPath).GetResultAsync();
             var repoRoot = _repoPath;
             if (!isBare)
@@ -118,6 +140,11 @@ namespace SourceGit.ViewModels
             }
 
             var node = Preferences.Instance.FindOrAddNodeByRepositoryPath(repoRoot, parent, true);
+            if (node.IsSvn)
+            {
+                node.IsSvn = false;
+                Preferences.Instance.Save();
+            }
             node.Bookmark = _bookmark;
             await node.UpdateStatusAsync(false, null);
             Welcome.Instance.Refresh();

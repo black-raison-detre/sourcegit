@@ -10,12 +10,14 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using SourceGit.Native;
 
 internal static class Program
 {
     private const string ScenarioVariable = "SOURCEGIT_SVN_REGRESSION_SCENARIO";
     private const string InvocationVariable = "SOURCEGIT_SVN_REGRESSION_INVOCATIONS";
+    private const string WorkingCopyRootVariable = "SOURCEGIT_SVN_REGRESSION_WC_ROOT";
     private static readonly string[] s_knownFixturePasswords =
     {
         "regression-secret-42",
@@ -60,7 +62,7 @@ internal static class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] == "info" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] == "info" || args[0] == "log" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -99,6 +101,60 @@ internal static class Program
                     Console.WriteLine("svn, version 1.14.3 (r123)\n\nThe following authentication credential caches are available:\n\n* Test keyring\n* Test encrypted disk cache\n\n");
                     return 0;
             }
+        }
+
+        if (args[0] == "log")
+        {
+            switch (scenario)
+            {
+                case "history_paged":
+                    var revisionIndex = Array.IndexOf(args, "--revision");
+                    if (revisionIndex >= 0 && revisionIndex + 1 < args.Length && args[revisionIndex + 1] == "7:0")
+                        Console.WriteLine("<log><logentry revision=\"3\"><msg>earlier\nrevision</msg></logentry></log>");
+                    else
+                        Console.WriteLine("<log><logentry revision=\"12\"><author>alice</author><date>2026-10-28T09:30:00.000000Z</date><msg>Unicode add\nSecond line: 保持 Unicode 🌱\nthird line</msg></logentry><logentry revision=\"8\"><author></author><date></date><msg></msg></logentry></log>");
+                    return 0;
+                case "history_auth_retry":
+                    if (!args.Contains("--username", StringComparer.Ordinal))
+                    {
+                        Console.Error.WriteLine("svn: E170001: Authentication required");
+                        return 1;
+                    }
+                    Console.WriteLine("<log><logentry revision=\"12\"><author>alice</author><date>2026-10-28T09:30:00.000000Z</date><msg>authenticated</msg></logentry></log>");
+                    return 0;
+                case "history_auth_leak":
+                    Console.Error.WriteLine($"svn: E170001: Authentication failed: {input}");
+                    return 1;
+                case "history_dtd":
+                    Console.WriteLine("<!DOCTYPE log [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]><log><logentry revision=\"12\"><msg>&xxe;</msg></logentry></log>");
+                    return 0;
+                case "history_malformed":
+                    Console.WriteLine("<log><logentry revision=\"not-a-number\"></logentry></log>");
+                    return 0;
+                case "history_large":
+                    Console.Write("<log><logentry revision=\"12\"><msg>");
+                    await Console.Out.WriteAsync(new string('x', 12 * 1024 * 1024 + 8)).ConfigureAwait(false);
+                    Console.WriteLine("</msg></logentry></log>");
+                    return 0;
+                case "history_slow":
+                    await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+                    return 0;
+                case "history_failure":
+                    Console.Error.WriteLine("svn: E200000: synthetic log failure");
+                    return 1;
+                default:
+                    Console.WriteLine("<log></log>");
+                    return 0;
+            }
+        }
+
+        if (args[0] == "info" && scenario.StartsWith("history_", StringComparison.Ordinal))
+        {
+            if (scenario == "history_missing_wcinfo")
+                Console.WriteLine("<info><entry revision=\"12\"><url>svn://fixture/repo</url><repository><root>svn://fixture</root></repository></entry></info>");
+            else
+                WriteWorkingCopyInfo();
+            return 0;
         }
 
         switch (scenario)
@@ -188,12 +244,215 @@ internal static class Program
         Console.WriteLine($"<info><entry revision=\"9\"><url>{System.Security.SecurityElement.Escape(url)}</url><repository><root>svn://fixture</root></repository></entry></info>");
     }
 
+    private static void WriteWorkingCopyInfo()
+    {
+        var workingCopyRoot = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+        var scenario = Environment.GetEnvironmentVariable(ScenarioVariable);
+        var url = scenario == "history_ssh"
+            ? "svn+ssh://svn.example.test/repository/path"
+            : "svn://fixture/repos/path%20with%20space%20%40";
+        Console.WriteLine($"<info><entry kind=\"file\" path=\"fixture\" revision=\"12\"><url>{url}</url><repository><root>svn://fixture</root></repository><wc-info><wcroot-abspath>{System.Security.SecurityElement.Escape(workingCopyRoot)}</wcroot-abspath></wc-info></entry></info>");
+    }
+
     private static async Task RunFakeClientChecksAsync()
     {
         using var temp = new TemporaryDirectory("sourcegit-svn-regression");
         var executable = GetFixtureExecutable();
         var config = Path.Combine(temp.Path, "a config & cache @ fixture");
         Directory.CreateDirectory(config);
+        var workingCopyPath = CreateFakeWorkingCopy(temp.Path);
+
+        await CheckAsync("working-copy root discovery handles nested repositories and Git precedence", async () =>
+        {
+            var root = Path.GetDirectoryName(Path.GetDirectoryName(workingCopyPath));
+            Equal(root, Svn.FindWorkingCopyRoot(workingCopyPath));
+
+            var nestedGit = Path.Combine(root, "nested-git");
+            Directory.CreateDirectory(Path.Combine(nestedGit, ".git"));
+            Equal(string.Empty, Svn.FindWorkingCopyRoot(nestedGit));
+
+            var outerGit = Path.Combine(temp.Path, "outer-git");
+            Directory.CreateDirectory(Path.Combine(outerGit, ".git"));
+            var nestedSvn = Path.Combine(outerGit, "nested-svn");
+            Directory.CreateDirectory(Path.Combine(nestedSvn, ".svn"));
+            await File.WriteAllTextAsync(Path.Combine(nestedSvn, ".svn", "wc.db"), "fixture").ConfigureAwait(false);
+            Equal(nestedSvn, Svn.FindWorkingCopyRoot(nestedSvn));
+
+            var sameFolder = Path.Combine(temp.Path, "same-folder");
+            Directory.CreateDirectory(Path.Combine(sameFolder, ".git"));
+            Directory.CreateDirectory(Path.Combine(sameFolder, ".svn"));
+            await File.WriteAllTextAsync(Path.Combine(sameFolder, ".svn", "wc.db"), "fixture").ConfigureAwait(false);
+            Equal(string.Empty, Svn.FindWorkingCopyRoot(sameFolder));
+        }).ConfigureAwait(false);
+
+        await CheckAsync("working-copy info preserves canonical root text, uses XML, --, and an @ terminator", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "history_trailing_wcroot", workingCopyPath);
+            var result = await Svn.GetWorkingCopyAsync(executable, config, workingCopyPath).ConfigureAwait(false);
+            Equal("Ready", result.Status);
+            Equal(Environment.GetEnvironmentVariable(WorkingCopyRootVariable), result.WorkingCopyRoot);
+            Equal("svn://fixture/repos/path%20with%20space%20%40", result.Url);
+            Equal("svn://fixture", result.RepositoryRoot);
+            Equal(12L, result.Revision);
+
+            var call = SingleInvocation(invocations);
+            SequenceEqual(new[] { "info", "--xml", "--non-interactive", "--config-dir", Path.GetFullPath(config), "--no-auth-cache", "--", Path.GetFullPath(workingCopyPath) + "@" }, call.Arguments);
+            True(!call.StdinReceived, "local WC info must not receive credentials");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("server-only info without wc-info is rejected before history starts", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "history_missing_wcinfo", workingCopyPath);
+            var result = await Svn.GetWorkingCopyAsync(executable, config, workingCopyPath).ConfigureAwait(false);
+            Equal("Failed", result.Status);
+            Equal(1, ReadInvocations(invocations).Count);
+        }).ConfigureAwait(false);
+
+        await CheckAsync("svn+ssh working copies are rejected before log can launch a tunnel", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "history_ssh", workingCopyPath);
+            var workingCopy = await Svn.GetWorkingCopyAsync(executable, config, workingCopyPath).ConfigureAwait(false);
+            Equal("Ready", workingCopy.Status);
+            Equal("svn+ssh://svn.example.test/repository/path", workingCopy.Url);
+
+            invocations = PrepareHistoryScenario(temp.Path, "history_ssh", workingCopyPath);
+            var result = await Svn.GetHistoryAsync(executable, config, workingCopyPath).ConfigureAwait(false);
+            Equal("UnsupportedTransport", result.Status);
+            Equal(1, ReadInvocations(invocations).Count);
+        }).ConfigureAwait(false);
+
+        await CheckAsync("history pages keep gaps, complete Unicode messages, metadata blanks, and immutable targets", async () =>
+        {
+            const string expectedUrl = "svn://fixture/repos/path%20with%20space%20%40";
+            var originalContents = await File.ReadAllTextAsync(workingCopyPath).ConfigureAwait(false);
+            var firstCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+            var first = await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", first.Status);
+            SequenceEqual(new long[] { 12, 8 }, first.Revisions.ConvertAll(revision => revision.Number));
+            Equal("r12", first.Revisions[0].RevisionText);
+            Equal("Unicode add", first.Revisions[0].Subject);
+            Equal("Unicode add\nSecond line: 保持 Unicode 🌱\nthird line", first.Revisions[0].Message);
+            Equal("alice", first.Revisions[0].Author);
+            True(first.Revisions[0].Date.HasValue, "timestamp was not parsed");
+            Equal(string.Empty, first.Revisions[1].Author);
+            Equal(null, first.Revisions[1].Date);
+            Equal(string.Empty, first.Revisions[1].Message);
+
+            var calls = ReadInvocations(firstCalls);
+            Equal(2, calls.Count);
+            True(calls[0].Arguments.Contains("info", StringComparer.Ordinal), "working-copy info did not run first");
+            var log = calls[1];
+            True(log.Arguments.Contains("--no-auth-cache", StringComparer.Ordinal), "history may write an auth cache without Remember");
+            Equal("HEAD:0", ArgumentAfter(log, "--revision"));
+            Equal("2", ArgumentAfter(log, "--limit"));
+            var target = log.Arguments[Array.IndexOf(log.Arguments, "--") + 1];
+            Equal(expectedUrl + "@12", target);
+            Equal(originalContents, await File.ReadAllTextAsync(workingCopyPath).ConfigureAwait(false));
+
+            var nextCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+            var next = await Svn.GetHistoryAsync(executable, config, workingCopyPath, beforeRevision: 8, limit: 2, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", next.Status);
+            SequenceEqual(new long[] { 3 }, next.Revisions.ConvertAll(revision => revision.Number));
+            Equal("7:0", ArgumentAfter(ReadInvocations(nextCalls)[1], "--revision"));
+            Equal("earlier\nrevision", next.Revisions[0].Message);
+            Equal(originalContents, await File.ReadAllTextAsync(workingCopyPath).ConfigureAwait(false));
+        }).ConfigureAwait(false);
+
+        await CheckAsync("history auth can be retried with stdin-only credentials and no auth-cache writes", async () =>
+        {
+            const string password = "regression-secret-42";
+            const string expectedUrl = "svn://fixture/repos/path%20with%20space%20%40";
+            var firstCalls = PrepareHistoryScenario(temp.Path, "history_auth_retry", workingCopyPath);
+            var unauthenticated = await Svn.GetHistoryAsync(executable, config, workingCopyPath, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("AuthenticationRequired", unauthenticated.Status);
+            var firstLog = ReadInvocations(firstCalls)[1];
+            True(firstLog.Arguments.Contains("--no-auth-cache", StringComparer.Ordinal), "unauthenticated history may write an auth cache");
+            True(!firstLog.Arguments.Contains("--username", StringComparer.Ordinal), "credentials were sent on the unauthenticated attempt");
+
+            var retryCalls = PrepareHistoryScenario(temp.Path, "history_auth_retry", workingCopyPath);
+            var authenticated = await Svn.GetHistoryAsync(executable, config, workingCopyPath,
+                credentials: new Svn.Credentials("alice", password, false), expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", authenticated.Status);
+            var retryLog = ReadInvocations(retryCalls)[1];
+            AssertCredentialArguments(retryLog, "alice", password);
+            True(retryLog.Arguments.Contains("--no-auth-cache", StringComparer.Ordinal), "Remember=false must disable native auth-cache writes");
+            True(!retryLog.PasswordArgumentPresent, "password appeared in process arguments");
+
+            var rememberCalls = PrepareHistoryScenario(temp.Path, "history_auth_retry", workingCopyPath);
+            var remembered = await Svn.GetHistoryAsync(executable, config, workingCopyPath,
+                credentials: new Svn.Credentials("alice", password, true), expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", remembered.Status);
+            var rememberLog = ReadInvocations(rememberCalls)[1];
+            AssertCredentialArguments(rememberLog, "alice", password);
+            True(!rememberLog.Arguments.Contains("--no-auth-cache", StringComparer.Ordinal), "Remember=true unexpectedly disabled native auth caching");
+            True(rememberLog.Arguments.Contains("--config-option", StringComparer.Ordinal), "Remember=true did not apply plaintext-storage safeguards");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("Remember=true without an explicit config directory fails before log", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "history_auth_retry", workingCopyPath);
+            var result = await Svn.GetHistoryAsync(executable, string.Empty, workingCopyPath,
+                credentials: new Svn.Credentials("alice", "remember-only-in-stdin", true),
+                expectedUrl: "svn://fixture/repos/path%20with%20space%20%40").ConfigureAwait(false);
+            Equal("CredentialStorageUnavailable", result.Status);
+            Equal(1, ReadInvocations(invocations).Count);
+        }).ConfigureAwait(false);
+
+        await CheckAsync("changed working-copy URL refuses explicit credentials before log", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+            var result = await Svn.GetHistoryAsync(executable, config, workingCopyPath,
+                credentials: new Svn.Credentials("alice", "regression-secret-42", false),
+                expectedUrl: "svn://fixture/previous-url").ConfigureAwait(false);
+            Equal("WorkingCopyChanged", result.Status);
+            Equal(1, ReadInvocations(invocations).Count);
+        }).ConfigureAwait(false);
+
+        await CheckAsync("history rejects DTD, malformed XML, and oversized XML", async () =>
+        {
+            foreach (var scenario in new[] { "history_dtd", "history_malformed", "history_large" })
+            {
+                var invocations = PrepareHistoryScenario(temp.Path, scenario, workingCopyPath);
+                var result = await Svn.GetHistoryAsync(executable, config, workingCopyPath,
+                    expectedUrl: "svn://fixture/repos/path%20with%20space%20%40").ConfigureAwait(false);
+                Equal("Failed", result.Status);
+                Equal(2, ReadInvocations(invocations).Count);
+            }
+        }).ConfigureAwait(false);
+
+        await CheckAsync("history cancellation terminates its child process", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "history_slow", workingCopyPath);
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            var cancelled = false;
+            try
+            {
+                await Svn.GetHistoryAsync(executable, config, workingCopyPath,
+                    expectedUrl: "svn://fixture/repos/path%20with%20space%20%40", cancellationToken: cancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = true;
+            }
+
+            True(cancelled, "caller cancellation was converted to a normal result");
+            var calls = ReadInvocations(invocations);
+            Equal(2, calls.Count);
+            True(!IsProcessRunning(calls[1].ProcessId), "cancelled history child process remained alive");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("history failures redact passwords and classify authentication", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "history_auth_leak", workingCopyPath);
+            const string password = "regression-secret-42";
+            var result = await Svn.GetHistoryAsync(executable, config, workingCopyPath,
+                credentials: new Svn.Credentials("alice", password, false),
+                expectedUrl: "svn://fixture/repos/path%20with%20space%20%40").ConfigureAwait(false);
+            Equal("AuthenticationFailed", result.Status);
+            True(!result.Details.Contains(password, StringComparison.Ordinal), "password leaked in history diagnostics");
+            var log = ReadInvocations(invocations)[1];
+            AssertCredentialArguments(log, "alice", password);
+        }).ConfigureAwait(false);
 
         await CheckAsync("probe arguments and available credential stores", async () =>
         {
@@ -558,6 +817,10 @@ internal static class Program
         await RunRequiredAsync(svnadmin, "create", publicRepository).ConfigureAwait(false);
         await RunRequiredAsync(svnadmin, "create", privateRepository).ConfigureAwait(false);
 
+        var privateFileUrl = new Uri(privateRepository).AbsoluteUri.TrimEnd('/');
+        var integrationTargetRelativePath = Path.Combine("nested @ folder", "renamed @ note.txt");
+        await CreateLocalHistoryAsync(svn, privateFileUrl, temp.Path).ConfigureAwait(false);
+
         WriteServerConfig(publicRepository, anonymousAccess: "read");
         WriteServerConfig(privateRepository, anonymousAccess: "none");
         var port = GetFreePort();
@@ -606,6 +869,64 @@ internal static class Program
             Equal(0, authFiles.Length);
             s_passed += 6;
 
+            await CheckAsync("authenticated svnserve history preserves copy ancestry and pages over gaps", async () =>
+            {
+                var integrationConfig = Path.Combine(temp.Path, "integration client config");
+                Directory.CreateDirectory(integrationConfig);
+                await File.WriteAllTextAsync(Path.Combine(integrationConfig, "config"),
+                    "[auth]\npassword-stores =\nstore-passwords = no\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
+                await File.WriteAllTextAsync(Path.Combine(integrationConfig, "servers"),
+                    "[global]\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
+
+                var integrationWorkingCopy = Path.Combine(temp.Path, "authenticated working copy");
+                await RunRequiredWithPasswordAsync(svn, "integration-correct-password",
+                    "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", integrationConfig,
+                    "--username", "alice", "--password-from-stdin", privateUrl + "/trunk", integrationWorkingCopy).ConfigureAwait(false);
+                var targetPath = Path.Combine(integrationWorkingCopy, integrationTargetRelativePath);
+                var localContents = await File.ReadAllTextAsync(targetPath).ConfigureAwait(false);
+                await File.AppendAllTextAsync(targetPath, "uncommitted local edit\n").ConfigureAwait(false);
+                var modifiedContents = await File.ReadAllTextAsync(targetPath).ConfigureAwait(false);
+                var statusBefore = await RunCaptureAsync(svn, "status", "--xml", targetPath + "@").ConfigureAwait(false);
+                True(statusBefore.StandardOutput.Contains("item=\"modified\"", StringComparison.Ordinal), "fixture failed to create a local modification");
+
+                var info = await Svn.GetWorkingCopyAsync(svn, integrationConfig, targetPath).ConfigureAwait(false);
+                Equal("Ready", info.Status);
+                True(Uri.UnescapeDataString(info.Url).EndsWith("/private/trunk/nested @ folder/renamed @ note.txt", StringComparison.Ordinal),
+                    $"working-copy URL did not identify the renamed @ path: {info.Url}");
+                var unauthenticated = await Svn.GetHistoryAsync(svn, integrationConfig, targetPath, limit: 2, expectedUrl: info.Url).ConfigureAwait(false);
+                Equal("AuthenticationRequired", unauthenticated.Status);
+
+                var wrong = await Svn.GetHistoryAsync(svn, integrationConfig, targetPath, limit: 2,
+                    credentials: new Svn.Credentials("alice", "wrong-history-password", false), expectedUrl: info.Url).ConfigureAwait(false);
+                Equal("AuthenticationFailed", wrong.Status);
+                True(!wrong.Details.Contains("wrong-history-password", StringComparison.Ordinal), "history password leaked to diagnostics");
+
+                var firstPage = await Svn.GetHistoryAsync(svn, integrationConfig, targetPath, limit: 2,
+                    credentials: new Svn.Credentials("alice", "integration-correct-password", false), expectedUrl: info.Url).ConfigureAwait(false);
+                Equal("Ready", firstPage.Status);
+                SequenceEqual(new long[] { 4, 3 }, firstPage.Revisions.ConvertAll(revision => revision.Number));
+                Equal("Rename target to @ path", firstPage.Revisions[0].Subject);
+                Equal("Update target\nSecond line: 保持 Unicode 🌱", firstPage.Revisions[1].Message);
+
+                var secondPage = await Svn.GetHistoryAsync(svn, integrationConfig, targetPath, beforeRevision: 3, limit: 2,
+                    credentials: new Svn.Credentials("alice", "integration-correct-password", false), expectedUrl: info.Url).ConfigureAwait(false);
+                Equal("Ready", secondPage.Status);
+                SequenceEqual(new long[] { 1 }, secondPage.Revisions.ConvertAll(revision => revision.Number));
+                Equal("Add target\nSecond line: 保持 Unicode 🌱\nthird line", secondPage.Revisions[0].Message);
+                True(!string.IsNullOrEmpty(secondPage.Revisions[0].Author) && secondPage.Revisions[0].Date.HasValue,
+                    "real svnserve history omitted authored revision metadata unexpectedly");
+
+                Equal(modifiedContents, await File.ReadAllTextAsync(targetPath).ConfigureAwait(false));
+                Equal(localContents + "uncommitted local edit\n", await File.ReadAllTextAsync(targetPath).ConfigureAwait(false));
+                var statusAfter = await RunCaptureAsync(svn, "status", "--xml", targetPath + "@").ConfigureAwait(false);
+                True(statusAfter.StandardOutput.Contains("item=\"modified\"", StringComparison.Ordinal), "history changed the local modification state");
+                Equal(NormalizeXmlAttributes(statusBefore.StandardOutput), NormalizeXmlAttributes(statusAfter.StandardOutput));
+                var historyAuthFiles = Directory.Exists(authDirectory)
+                    ? Directory.GetFiles(authDirectory, "*", SearchOption.AllDirectories)
+                    : Array.Empty<string>();
+                Equal(0, historyAuthFiles.Length);
+            }).ConfigureAwait(false);
+
             var probe = await Svn.ProbeAsync(svn, isolatedConfig).ConfigureAwait(false);
             Equal("Ready", probe.Status);
             if (OperatingSystem.IsMacOS())
@@ -641,6 +962,32 @@ internal static class Program
             "[users]\nalice = integration-correct-password\nblocked = integration-blocked-password\n");
         File.WriteAllText(Path.Combine(conf, "authz"),
             $"[{Path.GetFileName(repository)}:/]\nalice = rw\n* = {(anonymousAccess == "read" ? "r" : string.Empty)}\n");
+    }
+
+    private static async Task CreateLocalHistoryAsync(string svn, string repositoryUrl, string directory)
+    {
+        var seed = Path.Combine(directory, "history seed");
+        var initialRelativePath = Path.Combine("nested @ folder", "target @ note.txt");
+        var initialPath = Path.Combine(seed, initialRelativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(initialPath)!);
+        await File.WriteAllTextAsync(initialPath, "initial contents\n").ConfigureAwait(false);
+
+        var trunkUrl = repositoryUrl + "/trunk";
+        await RunRequiredAsync(svn, "import", "--non-interactive", "--message",
+            "Add target\nSecond line: 保持 Unicode 🌱\nthird line", seed, trunkUrl).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "mkdir", "--non-interactive", "--message", "unrelated revision gap",
+            trunkUrl + "/unrelated").ConfigureAwait(false);
+
+        var staging = Path.Combine(directory, "history staging");
+        await RunRequiredAsync(svn, "checkout", "--non-interactive", trunkUrl, staging).ConfigureAwait(false);
+        var stagedPath = Path.Combine(staging, initialRelativePath);
+        await File.AppendAllTextAsync(stagedPath, "updated contents\n").ConfigureAwait(false);
+        await RunRequiredAsync(svn, "commit", "--non-interactive", "--message",
+            "Update target\nSecond line: 保持 Unicode 🌱", staging).ConfigureAwait(false);
+
+        var renamedPath = Path.Combine(Path.GetDirectoryName(stagedPath)!, "renamed @ note.txt");
+        await RunRequiredAsync(svn, "move", "--non-interactive", stagedPath + "@", renamedPath).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "commit", "--non-interactive", "--message", "Rename target to @ path", staging).ConfigureAwait(false);
     }
 
     private static Process StartSvnServe(string executable, string root, int port)
@@ -688,6 +1035,51 @@ internal static class Program
         await process.WaitForExitAsync().ConfigureAwait(false);
         if (process.ExitCode != 0)
             throw new TestFailureException($"{Path.GetFileName(executable)} exited {process.ExitCode}: {stdout}\n{stderr}");
+    }
+
+    private static async Task RunRequiredWithPasswordAsync(string executable, string password, params string[] args)
+    {
+        var start = NewToolStartInfo(executable);
+        start.RedirectStandardInput = true;
+        start.StandardInputEncoding = new UTF8Encoding(false);
+        foreach (var argument in args)
+            start.ArgumentList.Add(argument);
+        using var process = Process.Start(start) ?? throw new TestFailureException($"Could not start {executable}.");
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        await process.StandardInput.WriteLineAsync(password).ConfigureAwait(false);
+        await process.StandardInput.FlushAsync().ConfigureAwait(false);
+        process.StandardInput.Close();
+        await process.WaitForExitAsync().ConfigureAwait(false);
+        var stdout = await stdoutTask.ConfigureAwait(false);
+        var stderr = await stderrTask.ConfigureAwait(false);
+        if (process.ExitCode != 0)
+            throw new TestFailureException($"{Path.GetFileName(executable)} exited {process.ExitCode}: {stdout}\n{stderr.Replace(password, "[redacted]", StringComparison.Ordinal)}");
+    }
+
+    private static async Task<(string StandardOutput, string StandardError)> RunCaptureAsync(string executable, params string[] args)
+    {
+        var start = NewToolStartInfo(executable);
+        foreach (var argument in args)
+            start.ArgumentList.Add(argument);
+        using var process = Process.Start(start) ?? throw new TestFailureException($"Could not start {executable}.");
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync().ConfigureAwait(false);
+        var stdout = await stdoutTask.ConfigureAwait(false);
+        var stderr = await stderrTask.ConfigureAwait(false);
+        if (process.ExitCode != 0)
+            throw new TestFailureException($"{Path.GetFileName(executable)} exited {process.ExitCode}: {stdout}\n{stderr}");
+        return (stdout, stderr);
+    }
+
+    private static string NormalizeXmlAttributes(string xml)
+    {
+        var document = XDocument.Parse(xml);
+        return string.Join("\n", document.Root!.DescendantsAndSelf().Select(element =>
+            $"{element.Name}|{string.Join(",", element.Attributes()
+                .OrderBy(attribute => attribute.Name.ToString(), StringComparer.Ordinal)
+                .Select(attribute => $"{attribute.Name}={attribute.Value}"))}|{element.Value}"));
     }
 
     private static ProcessStartInfo NewToolStartInfo(string executable) => new()
@@ -743,7 +1135,37 @@ internal static class Program
         var invocationPath = Path.Combine(directory, $"calls-{Guid.NewGuid():N}.jsonl");
         Environment.SetEnvironmentVariable(ScenarioVariable, scenario);
         Environment.SetEnvironmentVariable(InvocationVariable, invocationPath);
+        Environment.SetEnvironmentVariable(WorkingCopyRootVariable, null);
         return invocationPath;
+    }
+
+    private static string PrepareHistoryScenario(string directory, string scenario, string workingCopyPath)
+    {
+        var calls = PrepareScenario(directory, scenario);
+        var workingCopyRoot = Path.GetDirectoryName(Path.GetDirectoryName(workingCopyPath));
+        if (scenario == "history_trailing_wcroot")
+            workingCopyRoot += " ";
+        Environment.SetEnvironmentVariable(WorkingCopyRootVariable, workingCopyRoot);
+        return calls;
+    }
+
+    private static string CreateFakeWorkingCopy(string directory)
+    {
+        var root = Path.Combine(directory, "working copy @ fixture");
+        var nested = Path.Combine(root, "nested @ folder");
+        Directory.CreateDirectory(Path.Combine(root, ".svn"));
+        Directory.CreateDirectory(nested);
+        File.WriteAllText(Path.Combine(root, ".svn", "wc.db"), "fixture");
+        var path = Path.Combine(nested, "target @ file.txt");
+        File.WriteAllText(path, "local working copy contents\n");
+        return path;
+    }
+
+    private static string ArgumentAfter(Invocation invocation, string argument)
+    {
+        var index = Array.IndexOf(invocation.Arguments, argument);
+        True(index >= 0 && index + 1 < invocation.Arguments.Length, $"missing value after {argument}");
+        return invocation.Arguments[index + 1];
     }
 
     private static Invocation SingleInvocation(string path)

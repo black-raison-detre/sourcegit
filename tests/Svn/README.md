@@ -6,9 +6,18 @@ Run the portable regression checks from the repository root:
 dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj
 ```
 
-The project has no package dependencies. It compiles the production `Svn.cs`
-and `Svn.Connection.cs` files directly and uses its own apphost as a fake SVN
-CLI, so the focused checks do not need Subversion installed.
+The project has no package dependencies. It compiles the production `Svn.cs`,
+`Svn.Connection.cs`, and `Svn.History.cs` files directly and uses its own
+apphost as a fake SVN CLI, so the focused checks do not need Subversion
+installed.
+
+The fake-client checks cover working-copy root discovery and Git precedence,
+local XML info, safe argument handling for paths with spaces and `@`,
+copy-aware paged history with revision gaps, multiline Unicode messages,
+missing author/date values, malformed/DTD/oversized XML, cancellation and
+child termination, authentication retry, password redaction, transport
+rejection, and auth-cache safeguards. They also verify that a changed working
+copy URL prevents retained credentials from reaching the log command.
 
 The fake-client checks verify that a blank config override omits `--config-dir`
 and that unremembered credentials use `--no-auth-cache`. Remembering
@@ -35,5 +44,9 @@ Integration mode is opt-in and fails with a nonzero exit code if `svn`,
 temporary repositories and an isolated Subversion config directory, binds
 only to `127.0.0.1`, disables password stores, and removes only the temporary
 directory it created. The client config directory has a Unicode name to catch
-locale-dependent path handling. No user Subversion cache or credentials are
-read or modified.
+locale-dependent path handling. Its private repository contains an unrelated
+revision between relevant file changes and then renames the file to a path
+with spaces and `@`. The production APIs authenticate to local `svnserve`,
+read both history pages with the full multiline Unicode messages, and preserve
+an existing uncommitted edit and status. No user Subversion cache or
+credentials are read or modified.

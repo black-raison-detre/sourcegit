@@ -11,5 +11,6 @@
   <ItemGroup>
     <Compile Include="../../src/Native/Svn.cs" Link="Production/Svn.cs" />
     <Compile Include="../../src/Native/Svn.Connection.cs" Link="Production/Svn.Connection.cs" />
+    <Compile Include="../../src/Native/Svn.History.cs" Link="Production/Svn.History.cs" />
   </ItemGroup>
 </Project>

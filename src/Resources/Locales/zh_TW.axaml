@@ -1091,4 +1091,28 @@
   <x:String x:Key="Text.Worktree.Remove" xml:space="preserve">移除工作樹</x:String>
   <x:String x:Key="Text.Worktree.Unlock" xml:space="preserve">解除鎖定工作樹</x:String>
   <x:String x:Key="Text.Yes" xml:space="preserve">是</x:String>
+  <x:String x:Key="Text.SVN.History" xml:space="preserve">SVN 歷史</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy" xml:space="preserve">工作複本</x:String>
+  <x:String x:Key="Text.SVN.Refresh" xml:space="preserve">重新整理</x:String>
+  <x:String x:Key="Text.SVN.Revision" xml:space="preserve">版本</x:String>
+  <x:String x:Key="Text.SVN.Message" xml:space="preserve">提交訊息</x:String>
+  <x:String x:Key="Text.SVN.Author" xml:space="preserve">作者</x:String>
+  <x:String x:Key="Text.SVN.Date" xml:space="preserve">日期</x:String>
+  <x:String x:Key="Text.SVN.LoadMore" xml:space="preserve">載入更多</x:String>
+  <x:String x:Key="Text.SVN.Loading" xml:space="preserve">正在載入版本…</x:String>
+  <x:String x:Key="Text.SVN.Empty" xml:space="preserve">此工作複本沒有版本記錄。</x:String>
+  <x:String x:Key="Text.SVN.SelectRevision" xml:space="preserve">選取版本以查看完整提交訊息。</x:String>
+  <x:String x:Key="Text.SVN.Retry" xml:space="preserve">重試</x:String>
+  <x:String x:Key="Text.SVN.Credentials" xml:space="preserve">登入以載入版本歷史</x:String>
+  <x:String x:Key="Text.SVN.Username" xml:space="preserve">使用者名稱</x:String>
+  <x:String x:Key="Text.SVN.Password" xml:space="preserve">密碼</x:String>
+  <x:String x:Key="Text.SVN.Remember" xml:space="preserve">記住認證資訊</x:String>
+  <x:String x:Key="Text.SVN.SignIn" xml:space="preserve">登入</x:String>
+  <x:String x:Key="Text.SVN.Cancel" xml:space="preserve">取消</x:String>
+  <x:String x:Key="Text.SVN.AllLoaded" xml:space="preserve">已載入全部版本</x:String>
+  <x:String x:Key="Text.SVN.Loaded" xml:space="preserve">已載入 {0} 個版本</x:String>
+  <x:String x:Key="Text.SVN.NoMessage" xml:space="preserve">無提交訊息</x:String>
+  <x:String x:Key="Text.SVN.InvalidWorkingCopy" xml:space="preserve">此資料夾不是有效的 SVN 工作複本。</x:String>
+  <x:String x:Key="Text.SVN.MessageSplitter" xml:space="preserve">調整版本訊息窗格大小</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopyChanged" xml:space="preserve">工作複本已變更。請先重新整理歷史記錄。</x:String>
 </ResourceDictionary>

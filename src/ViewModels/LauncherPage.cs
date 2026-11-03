@@ -46,7 +46,7 @@ namespace SourceGit.ViewModels
             Welcome.Instance.ClearSearchFilter();
         }
 
-        public LauncherPage(RepositoryNode node, Repository repo)
+        public LauncherPage(RepositoryNode node, object repo)
         {
             _node = node;
             _data = repo;

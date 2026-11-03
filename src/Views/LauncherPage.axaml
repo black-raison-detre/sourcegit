@@ -23,6 +23,10 @@
           <DataTemplate DataType="vm:Repository">
             <v:RepositoryToolbar/>
           </DataTemplate>
+
+          <DataTemplate DataType="vm:SvnRepository">
+            <v:SvnRepositoryToolbar/>
+          </DataTemplate>
         </ContentControl.DataTemplates>
       </ContentControl>
     </Border>
@@ -37,6 +41,10 @@
                        BorderThickness="1"
                        BorderBrush="{DynamicResource Brush.Border0}"
                        Background="{DynamicResource Brush.Window}"/>
+          </DataTemplate>
+
+          <DataTemplate DataType="vm:SvnRepository">
+            <v:SvnRepository/>
           </DataTemplate>
 
           <DataTemplate DataType="vm:Repository">

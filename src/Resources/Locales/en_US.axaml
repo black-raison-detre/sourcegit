@@ -1152,4 +1152,28 @@
   <x:String x:Key="Text.Worktree.Remove" xml:space="preserve">Remove</x:String>
   <x:String x:Key="Text.Worktree.Unlock" xml:space="preserve">Unlock</x:String>
   <x:String x:Key="Text.Yes" xml:space="preserve">YES</x:String>
+  <x:String x:Key="Text.SVN.History" xml:space="preserve">SVN history</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy" xml:space="preserve">Working copy</x:String>
+  <x:String x:Key="Text.SVN.Refresh" xml:space="preserve">Refresh</x:String>
+  <x:String x:Key="Text.SVN.Revision" xml:space="preserve">Revision</x:String>
+  <x:String x:Key="Text.SVN.Message" xml:space="preserve">Message</x:String>
+  <x:String x:Key="Text.SVN.Author" xml:space="preserve">Author</x:String>
+  <x:String x:Key="Text.SVN.Date" xml:space="preserve">Date</x:String>
+  <x:String x:Key="Text.SVN.LoadMore" xml:space="preserve">Load more</x:String>
+  <x:String x:Key="Text.SVN.Loading" xml:space="preserve">Loading revisions…</x:String>
+  <x:String x:Key="Text.SVN.Empty" xml:space="preserve">No revisions found for this working copy.</x:String>
+  <x:String x:Key="Text.SVN.SelectRevision" xml:space="preserve">Select a revision to read its full message.</x:String>
+  <x:String x:Key="Text.SVN.Retry" xml:space="preserve">Retry</x:String>
+  <x:String x:Key="Text.SVN.Credentials" xml:space="preserve">Sign in to load revision history</x:String>
+  <x:String x:Key="Text.SVN.Username" xml:space="preserve">Username</x:String>
+  <x:String x:Key="Text.SVN.Password" xml:space="preserve">Password</x:String>
+  <x:String x:Key="Text.SVN.Remember" xml:space="preserve">Remember credentials</x:String>
+  <x:String x:Key="Text.SVN.SignIn" xml:space="preserve">Sign in</x:String>
+  <x:String x:Key="Text.SVN.Cancel" xml:space="preserve">Cancel</x:String>
+  <x:String x:Key="Text.SVN.AllLoaded" xml:space="preserve">All revisions loaded</x:String>
+  <x:String x:Key="Text.SVN.Loaded" xml:space="preserve">{0} revisions loaded</x:String>
+  <x:String x:Key="Text.SVN.NoMessage" xml:space="preserve">No log message</x:String>
+  <x:String x:Key="Text.SVN.InvalidWorkingCopy" xml:space="preserve">This folder is not a valid SVN working copy.</x:String>
+  <x:String x:Key="Text.SVN.MessageSplitter" xml:space="preserve">Resize revision message pane</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopyChanged" xml:space="preserve">The working copy has changed. Refresh history before continuing.</x:String>
 </ResourceDictionary>

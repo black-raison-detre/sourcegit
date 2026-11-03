@@ -45,6 +45,12 @@ namespace SourceGit.ViewModels
             set => SetProperty(ref _isRepository, value);
         }
 
+        public bool IsSvn
+        {
+            get => _isSvn;
+            set => SetProperty(ref _isSvn, value);
+        }
+
         public bool IsExpanded
         {
             get => _isExpanded;
@@ -165,7 +171,7 @@ namespace SourceGit.ViewModels
                 return;
             }
 
-            if (!Directory.Exists(_id))
+            if (IsSvn || !string.IsNullOrEmpty(Native.Svn.FindWorkingCopyRoot(_id)) || !Directory.Exists(_id))
             {
                 _lastUpdateStatus = DateTime.Now;
                 Status = null;
@@ -227,6 +233,7 @@ namespace SourceGit.ViewModels
         private string _id = string.Empty;
         private string _name = string.Empty;
         private bool _isRepository = false;
+        private bool _isSvn = false;
         private int _bookmark = 0;
         private bool _isExpanded = false;
         private bool _isVisible = true;
