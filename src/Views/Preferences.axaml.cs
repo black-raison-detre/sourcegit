@@ -33,6 +33,8 @@ namespace SourceGit.Views
             set => SetAndRaise(ShowGitVersionWarningProperty, ref _showGitVersionWarning, value);
         }
 
+        public ViewModels.SvnPreferences Svn { get; }
+
         public string DefaultUser
         {
             get;
@@ -132,6 +134,7 @@ namespace SourceGit.Views
         public Preferences()
         {
             var pref = ViewModels.Preferences.Instance;
+            Svn = new ViewModels.SvnPreferences(pref);
             DataContext = pref;
             CloseOnESC = true;
 
@@ -169,6 +172,18 @@ namespace SourceGit.Views
 
             UpdateGitVersion();
             InitializeComponent();
+        }
+
+        protected override void OnOpened(EventArgs e)
+        {
+            base.OnOpened(e);
+            _ = Svn.RefreshAsync();
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            Svn.Dispose();
+            base.OnClosed(e);
         }
 
         protected override async void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -278,6 +293,67 @@ namespace SourceGit.Views
             }
 
             e.Handled = true;
+        }
+
+        private async void SelectSvnExecutable(object _, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            var pattern = OperatingSystem.IsWindows() ? "svn.exe" : "svn";
+            var options = new FilePickerOpenOptions()
+            {
+                FileTypeFilter = [new FilePickerFileType(App.Text("Preferences.SVN.ExecutableFilter")) { Patterns = [pattern] }],
+                AllowMultiple = false,
+            };
+
+            try
+            {
+                var selected = await StorageProvider.OpenFilePickerAsync(options);
+                if (selected is { Count: 1 })
+                    Svn.InstallPath = selected[0].Path.LocalPath;
+            }
+            catch (Exception ex)
+            {
+                await new Alert().ShowAsync(this, App.Text("Preferences.SVN.SelectFailed", ex.Message), true);
+            }
+        }
+
+        private async void SelectSvnConfigDirectory(object _, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                var selected = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions() { AllowMultiple = false });
+                if (selected is { Count: 1 })
+                    Svn.ConfigDirectory = selected[0].Path.LocalPath;
+            }
+            catch (Exception ex)
+            {
+                await new Alert().ShowAsync(this, App.Text("Preferences.SVN.ConfigDirectory.SelectFailed", ex.Message), true);
+            }
+        }
+
+        private async void OpenSvnConfigDirectory(object _, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                if (Svn.CanOpenConfigDirectory)
+                    Native.OS.OpenInFileManager(Svn.ResolvedConfigDirectory);
+            }
+            catch (Exception ex)
+            {
+                await new Alert().ShowAsync(this, App.Text("Preferences.SVN.ConfigDirectory.OpenFailed", ex.Message), true);
+            }
+        }
+
+        private async void TestSvnConnection(object _, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            if (Svn.CanTestConnection)
+            {
+                using var connection = new ViewModels.SvnConnection(Svn.Executable, Svn.ConfigDirectory);
+                await new SvnConnection() { DataContext = connection }.ShowDialog(this);
+            }
         }
 
         private async void SelectDefaultCloneDir(object _, RoutedEventArgs e)

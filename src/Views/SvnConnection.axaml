@@ -1,0 +1,74 @@
+<v:ChromelessWindow xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:vm="using:SourceGit.ViewModels"
+                    xmlns:v="using:SourceGit.Views"
+                    x:Class="SourceGit.Views.SvnConnection"
+                    x:DataType="vm:SvnConnection"
+                    x:Name="ThisControl"
+                    Title="{DynamicResource Text.SVN.Connection.Title}"
+                    Icon="/App.ico"
+                    SizeToContent="WidthAndHeight"
+                    CanResize="False"
+                    WindowStartupLocation="CenterOwner">
+  <Grid Width="620" RowDefinitions="Auto,Auto,Auto">
+    <Grid Grid.Row="0" Height="28" IsVisible="{Binding !#ThisControl.UseSystemWindowFrame}">
+      <Border Background="{DynamicResource Brush.TitleBar}"
+              BorderThickness="0,0,0,1" BorderBrush="{DynamicResource Brush.Border0}"
+              PointerPressed="BeginMoveWindow"/>
+      <TextBlock Classes="bold" Text="{DynamicResource Text.SVN.Connection.Title}"
+                 HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+      <v:CaptionButtons HorizontalAlignment="Right" IsCloseButtonOnly="True"
+                        IsVisible="{OnPlatform True, macOS=False}"/>
+    </Grid>
+
+    <ScrollViewer Grid.Row="1" MaxHeight="500" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="16" Spacing="8">
+        <TextBlock Text="{DynamicResource Text.SVN.Connection.Url}"/>
+        <TextBox x:Name="RepositoryUrlBox" Height="28" CornerRadius="3"
+                 Watermark="https://svn.example.com/project"
+                 Text="{Binding Url, Mode=TwoWay}" IsEnabled="{Binding !IsConnecting}" IsReadOnly="{Binding HasConnected}"/>
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap"/>
+
+        <StackPanel Spacing="8" IsVisible="{Binding NeedsCredentials}" IsEnabled="{Binding !IsConnecting}">
+          <TextBlock Margin="0,8,0,0" Classes="bold" Text="{Binding ServerHint}" TextWrapping="Wrap"/>
+          <Grid RowDefinitions="32,32,Auto,Auto" ColumnDefinitions="Auto,*">
+            <TextBlock Grid.Row="0" Grid.Column="0" Margin="0,0,16,0" HorizontalAlignment="Right"
+                       Text="{DynamicResource Text.SVN.Connection.Username}"/>
+            <TextBox x:Name="UsernameBox" Grid.Row="0" Grid.Column="1" Height="28" CornerRadius="3"
+                     Text="{Binding Username, Mode=TwoWay}"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,0,16,0" HorizontalAlignment="Right"
+                       Text="{DynamicResource Text.SVN.Connection.Password}"/>
+            <TextBox x:Name="PasswordBox" Grid.Row="1" Grid.Column="1" Height="28" CornerRadius="3"
+                     PasswordChar="*" Text="{Binding Password, Mode=TwoWay}"/>
+            <CheckBox Grid.Row="2" Grid.Column="1" Content="{DynamicResource Text.SVN.Connection.Remember}"
+                      IsChecked="{Binding Remember, Mode=TwoWay}" IsEnabled="{Binding CanRemember}"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Foreground="{DynamicResource Brush.FG2}" TextWrapping="Wrap"
+                       Text="{Binding RememberHint}"/>
+          </Grid>
+        </StackPanel>
+
+        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*" IsVisible="{Binding HasConnected}">
+          <TextBlock Grid.Row="0" Grid.Column="0" Margin="0,4,16,4" VerticalAlignment="Top"
+                     Text="{DynamicResource Text.SVN.Connection.RepositoryRoot}"/>
+          <SelectableTextBlock Grid.Row="0" Grid.Column="1" Margin="0,4" TextWrapping="Wrap" Text="{Binding RepositoryRoot}"/>
+          <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,4,16,4" Text="{DynamicResource Text.SVN.Connection.Revision}"/>
+          <SelectableTextBlock Grid.Row="1" Grid.Column="1" Margin="0,4" Text="{Binding Revision}"/>
+        </Grid>
+
+        <Expander Header="{DynamicResource Text.SVN.Connection.Details}"
+                  IsVisible="{Binding Details, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+          <ScrollViewer MaxHeight="140" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <SelectableTextBlock TextWrapping="Wrap" Text="{Binding Details}"/>
+          </ScrollViewer>
+        </Expander>
+      </StackPanel>
+    </ScrollViewer>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="16,0,16,16">
+      <Button MinWidth="80" Height="30" Padding="12,0" Content="{DynamicResource Text.Cancel}"
+              IsVisible="{Binding !HasConnected}" Click="Cancel"/>
+      <Button Classes="flat primary" MinWidth="80" Height="30" Padding="12,0"
+              Content="{Binding ActionText}" IsEnabled="{Binding CanConnect}" HotKey="Enter" Click="Connect"/>
+    </StackPanel>
+  </Grid>
+</v:ChromelessWindow>

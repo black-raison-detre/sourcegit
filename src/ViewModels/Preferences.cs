@@ -320,6 +320,18 @@ namespace SourceGit.ViewModels
             }
         }
 
+        public string SvnInstallPath
+        {
+            get => _svnInstallPath;
+            set => SetProperty(ref _svnInstallPath, value ?? string.Empty);
+        }
+
+        public string SvnConfigDirectory
+        {
+            get => _svnConfigDirectory;
+            set => SetProperty(ref _svnConfigDirectory, value ?? string.Empty);
+        }
+
         public string GitDefaultCloneDir
         {
             get => _gitDefaultCloneDir;
@@ -804,6 +816,9 @@ namespace SourceGit.ViewModels
         }
 
         private static Preferences _instance = null;
+
+        private string _svnInstallPath = string.Empty;
+        private string _svnConfigDirectory = string.Empty;
 
         private bool _isLoading = true;
         private bool _isReadonly = true;

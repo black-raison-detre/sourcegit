@@ -722,6 +722,70 @@
   <x:String x:Key="Text.Preferences.Git.User.Placeholder" xml:space="preserve">Global git user name</x:String>
   <x:String x:Key="Text.Preferences.Git.UseStashAndReapplyByDefault" xml:space="preserve">Stash &amp; reapply changes by default when checking-out or merging branches</x:String>
   <x:String x:Key="Text.Preferences.Git.Version" xml:space="preserve">Git version</x:String>
+  <x:String x:Key="Text.Preferences.SVN" xml:space="preserve">SVN</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Automatic" xml:space="preserve">Automatic</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Browse" xml:space="preserve">Select SVN executable</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Checking" xml:space="preserve">Checking SVN…</x:String>
+  <x:String x:Key="Text.Preferences.SVN.ExecutableFilter" xml:space="preserve">SVN executable</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Failed" xml:space="preserve">SVN exited with an error. Check the details below.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.FailedToStart" xml:space="preserve">Could not run this executable. Check its permissions and the details below.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.InvalidPath" xml:space="preserve">Select an existing SVN executable using its full path.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.InvalidVersion" xml:space="preserve">This executable did not report a valid SVN version.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.NotFound" xml:space="preserve">SVN was not found. Install SVN or select its executable.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Path" xml:space="preserve">Executable</x:String>
+  <x:String x:Key="Text.Preferences.SVN.PathHint" xml:space="preserve">Leave empty to find SVN automatically.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Ready" xml:space="preserve">SVN is available.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.ResolvedPath" xml:space="preserve">Resolved path</x:String>
+  <x:String x:Key="Text.Preferences.SVN.SelectFailed" xml:space="preserve">Failed to select SVN executable: {0}</x:String>
+  <x:String x:Key="Text.Preferences.SVN.TimedOut" xml:space="preserve">The SVN version check timed out. Check the selected executable.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Version" xml:space="preserve">Version</x:String>
+  <x:String x:Key="Text.Preferences.SVN.ConfigDirectory" xml:space="preserve">Configuration</x:String>
+  <x:String x:Key="Text.Preferences.SVN.ConfigDirectory.Browse" xml:space="preserve">Select SVN configuration folder</x:String>
+  <x:String x:Key="Text.Preferences.SVN.ConfigDirectory.Hint" xml:space="preserve">Leave empty to use SVN's default directory. SVN creates the folder when needed.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.ConfigDirectory.Open" xml:space="preserve">Open configuration folder</x:String>
+  <x:String x:Key="Text.Preferences.SVN.ConfigDirectory.OpenFailed" xml:space="preserve">Failed to open SVN configuration folder: {0}</x:String>
+  <x:String x:Key="Text.Preferences.SVN.ConfigDirectory.Resolved" xml:space="preserve">Resolved folder</x:String>
+  <x:String x:Key="Text.Preferences.SVN.ConfigDirectory.SelectFailed" xml:space="preserve">Failed to select SVN configuration folder: {0}</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Default" xml:space="preserve">Default</x:String>
+  <x:String x:Key="Text.Preferences.SVN.InvalidConfigDirectory" xml:space="preserve">Select a configuration folder using its full path.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Storage" xml:space="preserve">Credential storage</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Storage.Checking" xml:space="preserve">Checking…</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Storage.Hint" xml:space="preserve">Supported storage depends on this SVN installation. Saving credentials also depends on SVN configuration.</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Storage.None" xml:space="preserve">No credential storage reported</x:String>
+  <x:String x:Key="Text.Preferences.SVN.Storage.Unknown" xml:space="preserve">Could not determine supported credential storage</x:String>
+  <x:String x:Key="Text.Preferences.SVN.TestConnection" xml:space="preserve">Test connection…</x:String>
+  <x:String x:Key="Text.SVN.Connection.Title" xml:space="preserve">Test SVN connection</x:String>
+  <x:String x:Key="Text.SVN.Connection.Url" xml:space="preserve">Repository URL</x:String>
+  <x:String x:Key="Text.SVN.Connection.EnterUrl" xml:space="preserve">Enter a repository URL to test access using your existing SVN credentials.</x:String>
+  <x:String x:Key="Text.SVN.Connection.Connect" xml:space="preserve">Connect</x:String>
+  <x:String x:Key="Text.SVN.Connection.Retry" xml:space="preserve">Retry</x:String>
+  <x:String x:Key="Text.SVN.Connection.Close" xml:space="preserve">Close</x:String>
+  <x:String x:Key="Text.SVN.Connection.ConnectingAction" xml:space="preserve">Connecting…</x:String>
+  <x:String x:Key="Text.SVN.Connection.Connecting" xml:space="preserve">Connecting to the repository…</x:String>
+  <x:String x:Key="Text.SVN.Connection.SignInTo" xml:space="preserve">Sign in to {0}</x:String>
+  <x:String x:Key="Text.SVN.Connection.Username" xml:space="preserve">Username</x:String>
+  <x:String x:Key="Text.SVN.Connection.Password" xml:space="preserve">Password</x:String>
+  <x:String x:Key="Text.SVN.Connection.Remember" xml:space="preserve">Remember credentials</x:String>
+  <x:String x:Key="Text.SVN.Connection.RememberHint" xml:space="preserve">SVN may save credentials using its configured storage. Passwords are not saved in SourceGit preferences.</x:String>
+  <x:String x:Key="Text.SVN.Connection.RememberRequiresConfig" xml:space="preserve">Select a configuration folder in SVN preferences to enable remembering credentials.</x:String>
+  <x:String x:Key="Text.SVN.Connection.CredentialStorageUnavailable" xml:space="preserve">Credentials cannot be saved safely with this configuration. Turn off Remember credentials or select another configuration folder.</x:String>
+  <x:String x:Key="Text.SVN.Connection.Details" xml:space="preserve">Details</x:String>
+  <x:String x:Key="Text.SVN.Connection.RepositoryRoot" xml:space="preserve">Repository root</x:String>
+  <x:String x:Key="Text.SVN.Connection.Revision" xml:space="preserve">Revision</x:String>
+  <x:String x:Key="Text.SVN.Connection.Ready" xml:space="preserve">Connected successfully.</x:String>
+  <x:String x:Key="Text.SVN.Connection.AuthenticationRequired" xml:space="preserve">The server requires authentication or rejected access. Try signing in.</x:String>
+  <x:String x:Key="Text.SVN.Connection.AuthenticationFailed" xml:space="preserve">The server did not accept this sign-in. Check your credentials and access permissions.</x:String>
+  <x:String x:Key="Text.SVN.Connection.AccessDenied" xml:space="preserve">The server denied access to this repository.</x:String>
+  <x:String x:Key="Text.SVN.Connection.CertificateError" xml:space="preserve">SVN could not verify the server certificate. Check the server certificate and your SVN trust settings.</x:String>
+  <x:String x:Key="Text.SVN.Connection.InvalidUrl" xml:space="preserve">Enter a valid repository URL without an embedded password.</x:String>
+  <x:String x:Key="Text.SVN.Connection.InvalidConfigDirectory" xml:space="preserve">Select a configuration folder using its full path in SVN preferences.</x:String>
+  <x:String x:Key="Text.SVN.Connection.InvalidPath" xml:space="preserve">Select an existing SVN executable using its full path in SVN preferences.</x:String>
+  <x:String x:Key="Text.SVN.Connection.NotFound" xml:space="preserve">SVN was not found. Check the executable in SVN preferences.</x:String>
+  <x:String x:Key="Text.SVN.Connection.RepositoryNotFound" xml:space="preserve">The repository or requested path was not found. Check the URL and your access permissions.</x:String>
+  <x:String x:Key="Text.SVN.Connection.FailedToStart" xml:space="preserve">Could not run SVN. Check its permissions and the details below.</x:String>
+  <x:String x:Key="Text.SVN.Connection.Failed" xml:space="preserve">Could not connect to the repository. Check the URL, connection, and details below.</x:String>
+  <x:String x:Key="Text.SVN.Connection.TimedOut" xml:space="preserve">The connection test timed out. Check the server and your connection.</x:String>
+  <x:String x:Key="Text.SVN.Connection.UnsupportedTransport" xml:space="preserve">SSH connections need SSH keys or an agent. Testing SVN over SSH is not supported yet.</x:String>
   <x:String x:Key="Text.Preferences.GPG" xml:space="preserve">GPG SIGNING</x:String>
   <x:String x:Key="Text.Preferences.GPG.CommitEnabled" xml:space="preserve">Commit GPG signing</x:String>
   <x:String x:Key="Text.Preferences.GPG.Format" xml:space="preserve">GPG Format</x:String>
