@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -38,10 +38,14 @@ namespace SourceGit.Commands
         private const int MAX_INLINE_CONTENT_LENGTH = 1024;
         private const int MAX_INLINE_CHUNKS_PER_LINE = 16;
 
-        public Diff(string repo, Models.DiffOption opt, int numContextLines, bool ignoreWhitespace, bool ignoreCRAtEOL)
+        private Diff(bool interpretGitContent = true)
         {
+            _interpretGitContent = interpretGitContent;
             _result.TextDiff = new Models.TextDiff();
+        }
 
+        public Diff(string repo, Models.DiffOption opt, int numContextLines, bool ignoreWhitespace, bool ignoreCRAtEOL) : this()
+        {
             WorkingDirectory = repo;
             Context = repo;
 
@@ -69,25 +73,7 @@ namespace SourceGit.Commands
                 await proc.StandardOutput.BaseStream.CopyToAsync(ms, CancellationToken).ConfigureAwait(false);
 
                 if (ms.TryGetBuffer(out var buffer))
-                {
-                    var start = buffer.Offset;
-                    var end = buffer.Offset + buffer.Count;
-                    while (start < end)
-                    {
-                        var lineEnd = Array.IndexOf(buffer.Array, (byte)'\n', start);
-                        if (lineEnd < 0)
-                        {
-                            ParseLine(buffer[start..]);
-                            break;
-                        }
-
-                        ParseLine(buffer[start..lineEnd]);
-                        if (_result.IsBinary)
-                            break;
-
-                        start = lineEnd + 1;
-                    }
-                }
+                    ParseOutput(buffer);
 
                 await proc.WaitForExitAsync(CancellationToken).ConfigureAwait(false);
             }
@@ -96,6 +82,41 @@ namespace SourceGit.Commands
                 // Ignore exceptions.
             }
 
+            return CompleteResult();
+        }
+
+        // Snapshot comparisons contain ordinary file text, including strings that look like
+        // Git LFS pointers or submodule entries. They must not trigger Git object loading.
+        public static Models.DiffResult ParseSnapshotPatch(byte[] patch)
+        {
+            var parser = new Diff(false);
+            parser.ParseOutput(new ArraySegment<byte>(patch));
+            return parser.CompleteResult();
+        }
+
+        private void ParseOutput(ArraySegment<byte> buffer)
+        {
+            var start = buffer.Offset;
+            var end = buffer.Offset + buffer.Count;
+            while (start < end)
+            {
+                var lineEnd = Array.IndexOf(buffer.Array, (byte)'\n', start, end - start);
+                if (lineEnd < 0)
+                {
+                    ParseLine(new ArraySegment<byte>(buffer.Array, start, end - start));
+                    break;
+                }
+
+                ParseLine(new ArraySegment<byte>(buffer.Array, start, lineEnd - start));
+                if (_result.IsBinary)
+                    break;
+
+                start = lineEnd + 1;
+            }
+        }
+
+        private Models.DiffResult CompleteResult()
+        {
             if (_isLFS || _result.IsBinary || _result.TextDiff.Lines.Count == 0)
             {
                 _result.TextDiff = null;
@@ -108,7 +129,7 @@ namespace SourceGit.Commands
                     _isInChunk = false;
                 }
 
-                if (_result.TextDiff.Lines.Count < 4)
+                if (_interpretGitContent && _result.TextDiff.Lines.Count < 4)
                 {
                     var isSubmoduleChange = true;
 
@@ -283,6 +304,9 @@ namespace SourceGit.Commands
 
         private bool ParseLFSChange(char prefix, string content)
         {
+            if (!_interpretGitContent)
+                return false;
+
             if (_isLFS)
             {
                 if (prefix == PREFIX_DELETED)
@@ -362,6 +386,7 @@ namespace SourceGit.Commands
             }
         }
 
+        private readonly bool _interpretGitContent;
         private readonly Models.DiffResult _result = new Models.DiffResult();
         private readonly List<Models.TextDiffLine> _deleted = new List<Models.TextDiffLine>();
         private readonly List<Models.TextDiffLine> _added = new List<Models.TextDiffLine>();

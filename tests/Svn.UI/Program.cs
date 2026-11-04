@@ -4,12 +4,14 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Styling;
@@ -29,7 +31,7 @@ internal static class Program
 
     private static async Task<int> Main(string[] args)
     {
-        if (args.Length > 0 && args[0] is "info" or "log")
+        if (args.Length > 0 && args[0] is "info" or "log" or "proplist" or "cat")
             return await RunFakeSvn(args);
 
         var temporary = Path.Combine(Path.GetTempPath(), "sourcegit-svn-ui-" + Guid.NewGuid().ToString("N"));
@@ -59,183 +61,449 @@ internal static class Program
             }
 
             Console.WriteLine("Fixture ready; starting headless application.");
-            using var session = HeadlessUnitTestSession.StartNew(typeof(Program));
+            var session = HeadlessUnitTestSession.StartNew(typeof(Program));
             using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-            await session.Dispatch<bool>(async () =>
+            try
             {
-                Console.WriteLine("Headless application initialized; loading history.");
-                var preferences = Preferences.Instance;
-                preferences.SvnInstallPath = SourceGit.Native.Svn.ResolveExecutable(string.Empty);
-                preferences.SvnConfigDirectory = config;
-                preferences.SetCanModify();
-
-                using var vm = new SvnRepository(workingCopy);
-                await vm.RefreshAsync();
-                Console.WriteLine("Initial history loaded.");
-                Check(!vm.HasError, "initial history: " + vm.ErrorDetails);
-                Check(vm.Revisions.Count == 100 && vm.HasMore, "initial page");
-                Check(vm.SelectedRevision.Number == 104 && vm.SelectedMessage.Length == 0, "empty message preserved");
-                vm.SelectedRevision = vm.Revisions[1];
-                var selection = vm.SelectedRevision;
-                Check(vm.SelectedMessage.Contains("\n\nFull message") && vm.SelectedMessage.Contains("中文 & <markup>"), "full multiline message preserved");
-
-                var window = new Window
+                await session.Dispatch<bool>(async () =>
                 {
-                    Width = 1024,
-                    Height = 600,
-                    Content = new SourceGit.Views.LauncherPage { DataContext = new LauncherPage(new RepositoryNode { Id = workingCopy, Name = "SVN fixture", IsRepository = true, IsSvn = true }, vm) },
-                };
-                window.Show();
-                Dispatcher.UIThread.RunJobs();
-                var grid = window.GetVisualDescendants().OfType<DataGrid>().Single();
-                Check(ReferenceEquals(grid.ItemsSource, vm.Revisions) && ReferenceEquals(grid.SelectedItem, selection), "actual view bindings");
-                grid.Focus();
-                window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
-                window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
-                Dispatcher.UIThread.RunJobs();
-                Check(vm.SelectedRevision.Number == 102, "keyboard revision navigation");
-                vm.SelectedRevision = selection;
+                    Console.WriteLine("Headless application initialized; loading history.");
+                    var preferences = Preferences.Instance;
+                    preferences.SvnInstallPath = SourceGit.Native.Svn.ResolveExecutable(string.Empty);
+                    preferences.GitInstallPath = SourceGit.Native.OS.FindGitExecutable();
+                    preferences.SvnConfigDirectory = config;
+                    preferences.SetCanModify();
+                    await VerifySnapshotDiffs(temporary);
+                    await VerifyOrdinaryGitDiff(temporary);
 
-                var messageBox = window.GetVisualDescendants().OfType<TextBox>().Single(box => box.IsVisible && box.IsReadOnly && box.Text == vm.SelectedMessage);
-                messageBox.Focus();
-                messageBox.SelectAll();
-                Check(messageBox.SelectedText == vm.SelectedMessage, "select complete message for copying");
-                messageBox.SelectionStart = 0;
-                messageBox.SelectionEnd = 0;
-                grid.Focus();
+                    using var vm = new SvnRepository(workingCopy);
+                    await vm.RefreshAsync();
+                    Console.WriteLine("Initial history loaded.");
+                    await WaitForPaths(vm);
+                    Check(!vm.HasError, "initial history: " + vm.ErrorDetails);
+                    Check(vm.Revisions.Count == 100 && vm.HasMore, "initial page");
+                    Check(vm.SelectedRevision.Number == 104 && vm.SelectedMessage.Length == 0, "empty message preserved");
+                    Check(!vm.HasPathsError && vm.ChangedPaths.Count == 1, "initial revision paths loaded");
+                    var initialPath = vm.ChangedPaths[0];
+                    Check(initialPath.Path == "/notes.txt" && initialPath.RelativePath.EndsWith("notes.txt", StringComparison.Ordinal), "working-copy changed path");
+                    Check(initialPath.Action == "M" && initialPath.Kind == "file", "changed path action and kind");
+                    Check(string.IsNullOrEmpty(initialPath.CopyFromPath) && initialPath.CopyFromRevision == null, "ordinary path has no copy source");
+                    vm.SelectedRevision = vm.Revisions[1];
+                    var selection = vm.SelectedRevision;
+                    await WaitForPaths(vm);
+                    Check(vm.SelectedMessage.Contains("\n\nFull message") && vm.SelectedMessage.Contains("中文 & <markup>"), "full multiline message preserved");
 
-                await vm.LoadMoreAsync();
-                Check(vm.Revisions.Count == 104 && !vm.HasMore, "pagination exhaustion");
-                Check(ReferenceEquals(vm.SelectedRevision, selection), "paging preserves selection");
-                Check(vm.Revisions.Select(revision => revision.Number).Distinct().Count() == 104, "no duplicate revisions");
-                Check(vm.Revisions[^1].Number == 1, "oldest revision present");
-
-                var screenshotDirectory = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_ARTIFACTS") ?? Path.Combine(Path.GetTempPath(), "sourcegit-svn-ui-artifacts");
-                Directory.CreateDirectory(screenshotDirectory);
-                foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
-                {
-                    Application.Current.RequestedThemeVariant = theme;
+                    var window = new Window
+                    {
+                        Width = 1024,
+                        Height = 600,
+                        Content = new SourceGit.Views.LauncherPage { DataContext = new LauncherPage(new RepositoryNode { Id = workingCopy, Name = "SVN fixture", IsRepository = true, IsSvn = true }, vm) },
+                    };
+                    var screenshotDirectory = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_ARTIFACTS") ?? Path.Combine(Path.GetTempPath(), "sourcegit-svn-ui-artifacts");
+                    Directory.CreateDirectory(screenshotDirectory);
+                    window.Show();
                     Dispatcher.UIThread.RunJobs();
-                    using var frame = window.CaptureRenderedFrame();
-                    Check(frame != null, "render " + theme);
-                    frame.Save(Path.Combine(screenshotDirectory, "history-" + theme + ".png"));
-                }
-                window.Width = 1440;
-                window.Height = 900;
-                Dispatcher.UIThread.RunJobs();
-                using (var frame = window.CaptureRenderedFrame())
-                    frame.Save(Path.Combine(screenshotDirectory, "history-wide.png"));
+                    var grids = window.GetVisualDescendants().OfType<DataGrid>().ToArray();
+                    var grid = grids.Single(candidate => ReferenceEquals(candidate.ItemsSource, vm.Revisions));
+                    var pathsGrid = grids.Single(candidate => ReferenceEquals(candidate.ItemsSource, vm.ChangedPaths));
+                    var contentTabs = window.GetVisualDescendants().OfType<TabControl>()
+                        .Single(control => ReferenceEquals(control.DataContext, vm) && control.Items.Count == 2);
+                    Check(ReferenceEquals(grid.SelectedItem, selection), "actual history view bindings");
+                    Check(ReferenceEquals(pathsGrid.ItemsSource, vm.ChangedPaths) && pathsGrid.GetVisualDescendants().OfType<DataGridRow>().Any(), "actual changed paths view bindings and rows");
+                    grid.Focus();
+                    window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+                    window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+                    Dispatcher.UIThread.RunJobs();
+                    Check(vm.SelectedRevision.Number == 102, "keyboard revision navigation");
+                    await WaitForPaths(vm);
+                    Check(vm.SelectedChangedPath == null, "revision change clears the selected file");
+                    vm.SelectedRevision = selection;
+                    await WaitForPaths(vm);
 
-                await vm.RefreshAsync();
-                Check(vm.Revisions.Count == 100 && vm.SelectedRevision.Number == selection.Number, "refresh replaces page and preserves selected revision");
+                    Check(vm.SelectedChangedPath == null, "loading changed paths does not auto-select a file");
+                    var selectedPath = vm.ChangedPaths.Single(path => path.Path == "/notes.txt");
+                    pathsGrid.SelectedItem = selectedPath;
+                    Dispatcher.UIThread.RunJobs();
+                    await WaitForDiff(vm);
+                    Check(ReferenceEquals(vm.SelectedChangedPath, selectedPath), "actual changed-file selection binding");
+                    Check(!vm.IsLoadingDiff && !vm.HasDiffError && vm.IsTextDiff, "selected historical file loads a text diff");
+                    Check(vm.DiffBeforeText.Contains("102", StringComparison.Ordinal) && vm.DiffAfterText.Contains("103", StringComparison.Ordinal), "historical diff endpoint labels");
+                    Check(vm.DiffTitle.Contains("notes.txt", StringComparison.Ordinal), "historical diff title");
+                    Check(vm.DiffContent is TextDiffContext textDiff &&
+                        textDiff.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Deleted && line.Content.Contains("Revision 102", StringComparison.Ordinal)) &&
+                        textDiff.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Added && line.Content.Contains("Revision 103", StringComparison.Ordinal)),
+                        "historical diff has before and after lines");
+                    Dispatcher.UIThread.RunJobs();
+                    using (var initialDiffFrame = window.CaptureRenderedFrame())
+                        Check(initialDiffFrame != null, "initial historical diff frame rendered");
+                    Check(window.GetVisualDescendants().Any(control => control.IsVisible && control.GetType().Name == "TextDiffView"), "historical diff uses the shared text-diff view");
 
-                var launcher = new Launcher(null);
-                typeof(App).GetField("_launcher", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(Application.Current, launcher);
-                var popup = new OpenLocalRepository(launcher.ActivePage.Node.Id, null)
-                {
-                    RepoPath = Path.Combine(workingCopy, "nested"),
-                };
-                Check(await popup.Sure(), "folder opener accepts nested SVN path");
-                Check(launcher.ActivePage.Data is SvnRepository, "SVN tab dispatch");
-                var opened = (SvnRepository)launcher.ActivePage.Data;
-                await WaitUntil(() => !opened.IsLoading);
-                Check(opened.FullPath == workingCopy.Replace('\\', '/'), "canonical working-copy root");
-                Check(launcher.ActiveWorkspace.Repositories.Contains(opened.FullPath), "saved workspace path");
-                var node = launcher.ActivePage.Node;
-                Check(node.IsSvn, "repository type preserved");
-                preferences.Save();
-                using (var saved = JsonDocument.Parse(File.ReadAllText(Path.Combine(temporary, "preference.json"))))
-                    Check(saved.RootElement.GetProperty("RepositoryNodes")[0].GetProperty("IsSvn").GetBoolean(), "SVN repository type serialized");
-                Check(!launcher.TryOpenRepositoryFromPath(Path.Combine(temporary, "absent")), "missing folder ignored");
-                Check(launcher.TryOpenRepositoryFromPath(Path.Combine(workingCopy, "nested")), "startup path accepts nested SVN path");
-                Check(launcher.Pages.Count == 1, "opening same root deduplicates tabs");
+                    var historicalDiff = (TextDiffContext)vm.DiffContent;
+                    historicalDiff.SelectedChunk = new TextDiffSelectedChunk(0, 24, 0, 2, true, false);
+                    Dispatcher.UIThread.RunJobs();
+                    var textDiffView = window.GetVisualDescendants().OfType<SourceGit.Views.TextDiffView>().Single();
+                    var hunkActions = textDiffView.GetVisualDescendants().OfType<StackPanel>().Single(panel => panel.Name == "Popup");
+                    Check(!historicalDiff.Option.IsLocalChange && !hunkActions.IsVisible,
+                        "historical diff does not expose local stage, unstage, or discard actions");
+                    historicalDiff.SelectedChunk = null;
+                    Dispatcher.UIThread.RunJobs();
 
-                // Reconstruct the launcher using its actual saved-workspace path dispatch.
-                launcher.CloseAll();
-                Check(!opened.CanRefresh, "closing cancels and disposes SVN tab");
-                var restored = new Launcher(null);
-                typeof(App).GetField("_launcher", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(Application.Current, restored);
-                Check(restored.ActivePage.Data is SvnRepository, "saved tab restoration");
-                restored.CloseTab(restored.ActivePage);
-                Check(restored.ActivePage.Data is Welcome && restored.ActiveWorkspace.Repositories.Count == 0, "last repository tab returns to welcome");
+                    var modeToggle = window.GetVisualDescendants().OfType<ToggleButton>()
+                        .Single(toggle => ReferenceEquals(toggle.DataContext, vm));
+                    foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+                    {
+                        Application.Current.RequestedThemeVariant = theme;
+                        modeToggle.IsChecked = false;
+                        Dispatcher.UIThread.RunJobs();
+                        using (var frame = window.CaptureRenderedFrame())
+                        {
+                            Check(frame != null, "render combined historical diff " + theme);
+                            frame.Save(Path.Combine(screenshotDirectory, "revision-diff-combined-" + theme + ".png"));
+                        }
 
-                preferences.SvnInstallPath = Path.Combine(temporary, "missing-svn");
-                await vm.RefreshAsync();
-                Check(vm.HasError && vm.Revisions.Count == 100 && vm.SelectedRevision.Number == selection.Number, "failed refresh preserves loaded history");
-                Check(!vm.ErrorMessage.StartsWith("Text.", StringComparison.Ordinal), "localized error text");
-                window.Width = 1024;
-                window.Height = 600;
-                Dispatcher.UIThread.RunJobs();
-                using (var frame = window.CaptureRenderedFrame())
-                    frame.Save(Path.Combine(screenshotDirectory, "history-error.png"));
-                preferences.SvnInstallPath = SourceGit.Native.Svn.ResolveExecutable(string.Empty);
-                await vm.RetryAsync();
-                Check(!vm.HasError, "retry recovers");
-
-                // The real local SVN fixture covers data and paths; the apphost fixture makes
-                // authentication and external switches deterministic for the actual view model.
-                var realExecutable = preferences.SvnInstallPath;
-                preferences.SvnInstallPath = Environment.ProcessPath;
-                var fakeCalls = Path.Combine(temporary, "fake-log-calls");
-                Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_ROOT", workingCopy);
-                Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_URL", "svn://fixture.test/trunk");
-                Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS", fakeCalls);
-                using (var authenticated = new SvnRepository(workingCopy))
-                {
-                    window.Content = new SourceGit.Views.LauncherPage { DataContext = new LauncherPage(node, authenticated) };
-                    await authenticated.RefreshAsync();
-                    Check(authenticated.NeedsCredentials && authenticated.HasError, "VM requests credentials");
+                        modeToggle.IsChecked = true;
+                        Dispatcher.UIThread.RunJobs();
+                        Check(vm.DiffModeSideBySide && vm.DiffContent is TwoSideTextDiff, "switch historical diff to side-by-side");
+                        using (var frame = window.CaptureRenderedFrame())
+                        {
+                            Check(frame != null, "render side-by-side historical diff " + theme);
+                            frame.Save(Path.Combine(screenshotDirectory, "revision-diff-side-by-side-" + theme + ".png"));
+                        }
+                        modeToggle.IsChecked = false;
+                        Dispatcher.UIThread.RunJobs();
+                    }
+                    window.Width = 1440;
+                    window.Height = 900;
                     Dispatcher.UIThread.RunJobs();
                     using (var frame = window.CaptureRenderedFrame())
-                        frame.Save(Path.Combine(screenshotDirectory, "history-authentication.png"));
-                    authenticated.Username = "fixture";
-                    authenticated.Password = "incorrect-secret";
-                    await authenticated.SignInAsync();
-                    Check(authenticated.NeedsCredentials && !authenticated.ErrorDetails.Contains("incorrect-secret"), "wrong sign-in redacted and retryable");
-                    Check(authenticated.Password.Length == 0, "password field cleared after attempt");
-                    authenticated.Password = "ui-fixture-password";
-                    await authenticated.SignInAsync();
-                    Check(!authenticated.HasError && !authenticated.NeedsCredentials && authenticated.Revisions.Count == 100, "VM sign-in loads history");
-                    await authenticated.LoadMoreAsync();
-                    Check(!authenticated.HasError && authenticated.Revisions.Count == 101, "VM retains session credentials for paging");
-                    var callsBeforeSwitch = File.ReadAllLines(fakeCalls).Length;
-                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_URL", "svn://other.test/trunk");
-                    await authenticated.RefreshAsync();
-                    Check(authenticated.NeedsCredentials && authenticated.Revisions.Count == 0, "switch clears credentials and old history");
-                    Check(File.ReadAllLines(fakeCalls).Length == callsBeforeSwitch + 1, "new URL attempted once without session credentials");
-                    Check(File.ReadAllLines(fakeCalls)[^1] == "anonymous", "switched URL receives no explicit credentials");
-                }
-                Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_ROOT", null);
-                Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_URL", null);
-                Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS", null);
-                preferences.SvnInstallPath = realExecutable;
-                Console.WriteLine("Authentication and credential-switch checks completed.");
+                        frame.Save(Path.Combine(screenshotDirectory, "revision-diff-wide.png"));
+                    window.Width = 1024;
+                    window.Height = 600;
+                    Dispatcher.UIThread.RunJobs();
 
-                // Saved SVN metadata must not override current Git ownership of the path.
-                var converted = Path.Combine(temporary, "converted-working-copy");
-                await Run("svn", "checkout", "--config-dir", config, url, converted);
-                var convertedNode = preferences.FindOrAddNodeByRepositoryPath(converted, null, false, false);
-                convertedNode.IsSvn = true;
-                await Run("git", "-C", converted, "init");
-                await Run("git", "-C", converted, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "--allow-empty", "-m", "Git fixture");
-                restored.OpenRepositoryInTab(convertedNode, null);
-                try
-                {
-                    Check(restored.ActivePage.Data is Repository && !convertedNode.IsSvn, "saved SVN node becomes Git when a Git marker takes precedence");
-                }
-                finally
-                {
-                    if (restored.ActivePage.Data is Repository or SvnRepository)
-                        restored.CloseTab(restored.ActivePage);
-                }
-                Directory.Delete(Path.Combine(converted, ".git"), true);
-                restored.OpenRepositoryInTab(convertedNode, null);
-                Check(restored.ActivePage.Data is SvnRepository && convertedNode.IsSvn, "saved node returns to SVN after Git marker removal");
-                restored.CloseTab(restored.ActivePage);
-                window.Close();
-                Console.WriteLine("Screenshots: " + screenshotDirectory);
-                return true;
-            }, uiTimeout.Token);
+                    var loadedDiff = vm.DiffContent;
+                    contentTabs.SelectedIndex = 1;
+                    Dispatcher.UIThread.RunJobs();
+                    var messageBox = window.GetVisualDescendants().OfType<TextBox>()
+                        .Single(box => box.IsVisible && box.IsReadOnly && box.Text == vm.SelectedMessage);
+                    messageBox.Focus();
+                    messageBox.SelectAll();
+                    Check(messageBox.SelectedText == vm.SelectedMessage, "select complete message for copying from Message tab");
+                    Check(ReferenceEquals(vm.SelectedChangedPath, selectedPath) && ReferenceEquals(vm.DiffContent, loadedDiff), "Message tab preserves file selection and diff");
+                    messageBox.SelectionStart = 0;
+                    messageBox.SelectionEnd = 0;
+                    contentTabs.SelectedIndex = 0;
+                    grid.Focus();
+                    Dispatcher.UIThread.RunJobs();
+                    Check(ReferenceEquals(pathsGrid.SelectedItem, selectedPath), "returning to Changes preserves selected file");
+                    Check(File.ReadAllText(file) == "Revision 104", "historical diff leaves the working copy unchanged");
+
+                    await vm.LoadMoreAsync();
+                    await WaitForPaths(vm);
+                    Check(vm.Revisions.Count == 104 && !vm.HasMore, "pagination exhaustion");
+                    Check(ReferenceEquals(vm.SelectedRevision, selection), "paging preserves selection");
+                    Check(vm.Revisions.Select(revision => revision.Number).Distinct().Count() == 104, "no duplicate revisions");
+                    Check(vm.Revisions[^1].Number == 1, "oldest revision present");
+
+                    foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+                    {
+                        Application.Current.RequestedThemeVariant = theme;
+                        Dispatcher.UIThread.RunJobs();
+                        using var frame = window.CaptureRenderedFrame();
+                        Check(frame != null, "render " + theme);
+                        frame.Save(Path.Combine(screenshotDirectory, "history-" + theme + ".png"));
+                    }
+                    window.Width = 1440;
+                    window.Height = 900;
+                    Dispatcher.UIThread.RunJobs();
+                    using (var frame = window.CaptureRenderedFrame())
+                        frame.Save(Path.Combine(screenshotDirectory, "history-wide.png"));
+
+                    await vm.RefreshAsync();
+                    await WaitForPaths(vm);
+                    Check(vm.Revisions.Count == 100 && vm.SelectedRevision.Number == selection.Number, "refresh replaces page and preserves selected revision");
+
+                    var launcher = new Launcher(null);
+                    typeof(App).GetField("_launcher", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(Application.Current, launcher);
+                    var popup = new OpenLocalRepository(launcher.ActivePage.Node.Id, null)
+                    {
+                        RepoPath = Path.Combine(workingCopy, "nested"),
+                    };
+                    Check(await popup.Sure(), "folder opener accepts nested SVN path");
+                    Check(launcher.ActivePage.Data is SvnRepository, "SVN tab dispatch");
+                    var opened = (SvnRepository)launcher.ActivePage.Data;
+                    await WaitUntil(() => !opened.IsLoading);
+                    Check(opened.FullPath == workingCopy.Replace('\\', '/'), "canonical working-copy root");
+                    Check(launcher.ActiveWorkspace.Repositories.Contains(opened.FullPath), "saved workspace path");
+                    var node = launcher.ActivePage.Node;
+                    Check(node.IsSvn, "repository type preserved");
+                    preferences.Save();
+                    using (var saved = JsonDocument.Parse(File.ReadAllText(Path.Combine(temporary, "preference.json"))))
+                        Check(saved.RootElement.GetProperty("RepositoryNodes")[0].GetProperty("IsSvn").GetBoolean(), "SVN repository type serialized");
+                    Check(!launcher.TryOpenRepositoryFromPath(Path.Combine(temporary, "absent")), "missing folder ignored");
+                    Check(launcher.TryOpenRepositoryFromPath(Path.Combine(workingCopy, "nested")), "startup path accepts nested SVN path");
+                    Check(launcher.Pages.Count == 1, "opening same root deduplicates tabs");
+
+                    // Reconstruct the launcher using its actual saved-workspace path dispatch.
+                    launcher.CloseAll();
+                    Check(!opened.CanRefresh, "closing cancels and disposes SVN tab");
+                    var restored = new Launcher(null);
+                    typeof(App).GetField("_launcher", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(Application.Current, restored);
+                    Check(restored.ActivePage.Data is SvnRepository, "saved tab restoration");
+                    restored.CloseTab(restored.ActivePage);
+                    Check(restored.ActivePage.Data is Welcome && restored.ActiveWorkspace.Repositories.Count == 0, "last repository tab returns to welcome");
+
+                    preferences.SvnInstallPath = Path.Combine(temporary, "missing-svn");
+                    await vm.RefreshAsync();
+                    Check(vm.HasError && vm.Revisions.Count == 100 && vm.SelectedRevision.Number == selection.Number, "failed refresh preserves loaded history");
+                    Check(!vm.ErrorMessage.StartsWith("Text.", StringComparison.Ordinal), "localized error text");
+                    window.Width = 1024;
+                    window.Height = 600;
+                    Dispatcher.UIThread.RunJobs();
+                    using (var frame = window.CaptureRenderedFrame())
+                        frame.Save(Path.Combine(screenshotDirectory, "history-error.png"));
+                    preferences.SvnInstallPath = SourceGit.Native.Svn.ResolveExecutable(string.Empty);
+                    await vm.RetryAsync();
+                    await WaitForPaths(vm);
+                    Check(!vm.HasError, "retry recovers");
+
+                    // The real local SVN fixture covers data and paths; the apphost fixture makes
+                    // authentication and external switches deterministic for the actual view model.
+                    var realExecutable = preferences.SvnInstallPath;
+                    preferences.SvnInstallPath = Environment.ProcessPath;
+                    var fakeCalls = Path.Combine(temporary, "fake-log-calls");
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_ROOT", workingCopy);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_URL", "svn://fixture.test/trunk");
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS", fakeCalls);
+                    using (var authenticated = new SvnRepository(workingCopy))
+                    {
+                        window.Content = new SourceGit.Views.LauncherPage { DataContext = new LauncherPage(node, authenticated) };
+                        await authenticated.RefreshAsync();
+                        Check(authenticated.NeedsCredentials && authenticated.HasError, "VM requests credentials");
+                        Dispatcher.UIThread.RunJobs();
+                        using (var frame = window.CaptureRenderedFrame())
+                            frame.Save(Path.Combine(screenshotDirectory, "history-authentication.png"));
+                        authenticated.Username = "fixture";
+                        authenticated.Password = "incorrect-secret";
+                        await authenticated.SignInAsync();
+                        Check(authenticated.NeedsCredentials && !authenticated.ErrorDetails.Contains("incorrect-secret"), "wrong sign-in redacted and retryable");
+                        Check(authenticated.Password.Length == 0, "password field cleared after attempt");
+                        authenticated.Password = "ui-fixture-password";
+                        await authenticated.SignInAsync();
+                        await WaitForPaths(authenticated);
+                        Check(!authenticated.HasError && !authenticated.NeedsCredentials && authenticated.Revisions.Count == 100, "VM sign-in loads history");
+                        Check(authenticated.ChangedPaths.Count == 2 && authenticated.ChangedPaths.Any(path => path.Kind == "dir" && path.Path.Contains("目录", StringComparison.Ordinal)), "directory and long Unicode changed path");
+                        var copiedPath = authenticated.ChangedPaths.Single(path => path.Kind == "file");
+                        Check(copiedPath.Action == "A" && copiedPath.Path.Contains("文件", StringComparison.Ordinal), "copied file path");
+                        Check(copiedPath.CopyFromPath == "/archive/old name.txt" && Convert.ToString(copiedPath.CopyFromRevision) == "103", "copy source metadata");
+                        Check(copiedPath.RelativePath.Contains("长文件名", StringComparison.Ordinal), "relative Unicode path");
+
+                        Dispatcher.UIThread.RunJobs();
+                        var fakePathsGrid = window.GetVisualDescendants().OfType<DataGrid>()
+                            .Single(candidate => ReferenceEquals(candidate.ItemsSource, authenticated.ChangedPaths));
+                        var fakeCopyPath = await SelectChangedPath(authenticated, fakePathsGrid, 104, path => path.Kind == "file");
+                        Check(ReferenceEquals(fakeCopyPath, copiedPath) && !authenticated.HasDiffError && authenticated.IsTextDiff,
+                            "selecting the copied path loads its historical text diff");
+                        Check(authenticated.DiffBeforeText.Contains("old name.txt", StringComparison.Ordinal) && authenticated.DiffBeforeText.Contains("103", StringComparison.Ordinal) &&
+                            authenticated.DiffAfterText.Contains("长文件名", StringComparison.Ordinal) && authenticated.DiffAfterText.Contains("104", StringComparison.Ordinal),
+                            "copy diff compares copy source r103 with destination r104");
+                        Check(authenticated.DiffContent is TextDiffContext copiedDiff &&
+                            copiedDiff.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Deleted && line.Content.Contains("Copied baseline at revision 103", StringComparison.Ordinal)) &&
+                            copiedDiff.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Added && line.Content.Contains("Copied target at revision 104", StringComparison.Ordinal)),
+                            "copy diff content uses the historical copy baseline");
+
+                        var emptyPath = await SelectChangedPath(authenticated, fakePathsGrid, 101, path => path.Path == "/trunk/empty.txt");
+                        Check(emptyPath.Action == "A" && authenticated.DiffBeforeText.Contains("Absent", StringComparison.Ordinal) &&
+                            authenticated.DiffAfterText.Contains("empty.txt", StringComparison.Ordinal) && authenticated.DiffNotice.Length > 0,
+                            "empty added file keeps absent and present endpoints distinct");
+                        var binaryPath = await SelectChangedPath(authenticated, fakePathsGrid, 100, path => path.Path == "/trunk/binary.dat");
+                        Check(binaryPath.Kind == "file" && !authenticated.IsTextDiff && authenticated.DiffNotice.Contains("3 B", StringComparison.Ordinal) &&
+                            authenticated.DiffNotice.Contains("4 B", StringComparison.Ordinal), "binary diff notice reports before and after sizes");
+                        var callsBeforeDirectory = File.ReadAllLines(fakeCalls).Length;
+                        var directoryPath = await SelectChangedPath(authenticated, fakePathsGrid, 99, path => path.Kind == "dir");
+                        var directoryCalls = File.ReadAllLines(fakeCalls).Skip(callsBeforeDirectory);
+                        Check(directoryPath.Kind == "dir" && !authenticated.HasDiffError && !authenticated.IsTextDiff && authenticated.DiffNotice.Length > 0,
+                            "directory changes show a notice without requesting file content");
+                        Check(!directoryCalls.Any(line => line.StartsWith("cat ", StringComparison.Ordinal)), "directory selection skips svn cat");
+                        await SelectChangedPath(authenticated, fakePathsGrid, 97, path => path.Path == "/trunk/same.txt");
+                        Check(!authenticated.HasDiffError && !authenticated.IsTextDiff && authenticated.DiffNotice.Length > 0 &&
+                            authenticated.DiffBeforeText.Contains("96", StringComparison.Ordinal) && authenticated.DiffAfterText.Contains("97", StringComparison.Ordinal),
+                            "identical snapshots have an explicit no-content-change state");
+                        await SelectChangedPath(authenticated, fakePathsGrid, 96, path => path.Path == "/trunk/large.txt");
+                        Check(!authenticated.HasDiffError && !authenticated.IsTextDiff && authenticated.DiffNotice.Length > 0,
+                            "large snapshot content produces a size-limit notice");
+
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_REVISION", "104");
+                        var staleDiffStarted = Path.Combine(temporary, "stale-diff-response-started");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_STARTED", staleDiffStarted);
+                        await SelectChangedPath(authenticated, fakePathsGrid, 104, path => path.Kind == "file", false);
+                        await WaitUntil(() => File.Exists(staleDiffStarted));
+                        var staleDirectory = await SelectChangedPath(authenticated, fakePathsGrid, 99, path => path.Kind == "dir");
+                        Check(ReferenceEquals(authenticated.SelectedChangedPath, staleDirectory) && !authenticated.IsTextDiff && authenticated.DiffNotice.Length > 0,
+                            "stale file content cannot replace a newer directory selection");
+
+                        var cancelledDiffStarted = Path.Combine(temporary, "cancelled-diff-response-started");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_STARTED", cancelledDiffStarted);
+                        var retryPath = await SelectChangedPath(authenticated, fakePathsGrid, 104, path => path.Kind == "file", false);
+                        await WaitUntil(() => File.Exists(cancelledDiffStarted));
+                        authenticated.CancelDiff();
+                        await WaitForDiff(authenticated);
+                        Check(authenticated.HasDiffError && authenticated.CanRetryDiff && ReferenceEquals(authenticated.SelectedChangedPath, retryPath),
+                            "cancelled file diff remains retryable for the same selection");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_REVISION", null);
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_STARTED", null);
+                        await authenticated.RetryDiffAsync();
+                        await WaitForDiff(authenticated);
+                        Check(!authenticated.HasDiffError && authenticated.IsTextDiff && ReferenceEquals(authenticated.SelectedChangedPath, retryPath),
+                            "same selected file diff retries successfully");
+
+                        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+                        {
+                            Application.Current.RequestedThemeVariant = theme;
+                            Dispatcher.UIThread.RunJobs();
+                            using var frame = window.CaptureRenderedFrame();
+                            Check(frame != null, "render changed paths " + theme);
+                            frame.Save(Path.Combine(screenshotDirectory, "changed-paths-" + theme + ".png"));
+                        }
+
+                        await authenticated.LoadMoreAsync();
+                        await WaitForPaths(authenticated);
+                        Check(!authenticated.HasError && authenticated.Revisions.Count == 101, "VM retains session credentials for paging");
+
+                        authenticated.SelectedRevision = authenticated.Revisions.Single(revision => revision.Number == 5);
+                        await WaitForPaths(authenticated);
+                        Check(authenticated.IsPathsEmpty && authenticated.ChangedPaths.Count == 0, "empty changed-path result state");
+                        authenticated.SelectedRevision = authenticated.Revisions[0];
+                        await WaitForPaths(authenticated);
+
+                        // Delay one response, change selection, and ensure the cancelled result cannot
+                        // replace the paths belonging to the newer selection.
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_REVISION", "103");
+                        var delayStarted = Path.Combine(temporary, "stale-path-response-started");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_STARTED", delayStarted);
+                        authenticated.SelectedRevision = authenticated.Revisions[1];
+                        await WaitUntil(() => File.Exists(delayStarted));
+                        authenticated.SelectedRevision = authenticated.Revisions[2];
+                        await WaitForPaths(authenticated);
+                        Check(authenticated.SelectedRevision.Number == 102 && authenticated.ChangedPaths.Single().Path == "/trunk/revision-102.txt", "stale changed-path response ignored");
+
+                        // Explicit cancellation leaves a retryable state; retrying the same selection
+                        // must repopulate the list.
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_REVISION", "101");
+                        delayStarted = Path.Combine(temporary, "cancelled-path-response-started");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_STARTED", delayStarted);
+                        authenticated.SelectedRevision = authenticated.Revisions.Single(revision => revision.Number == 101);
+                        await WaitUntil(() => File.Exists(delayStarted));
+                        authenticated.CancelChangedPaths();
+                        await WaitForPaths(authenticated);
+                        Check(authenticated.HasPathsError && authenticated.CanRetryPaths && authenticated.ChangedPaths.Count == 0, "cancelled changed-path query is retryable");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_REVISION", null);
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_STARTED", null);
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_REVISION", null);
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_STARTED", null);
+                        await authenticated.RetryChangedPathsAsync();
+                        await WaitForPaths(authenticated);
+                        Check(!authenticated.HasPathsError && authenticated.ChangedPaths.Single().Path == "/trunk/empty.txt", "changed-path retry recovers");
+
+                        var callsBeforeSwitch = CountHistoryCalls(fakeCalls);
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_URL", "svn://other.test/trunk");
+                        await authenticated.RefreshAsync();
+                        Check(authenticated.NeedsCredentials && authenticated.Revisions.Count == 0, "switch clears credentials and old history");
+                        Check(CountHistoryCalls(fakeCalls) == callsBeforeSwitch + 1, "new URL attempted once without session credentials");
+                        Check(File.ReadAllLines(fakeCalls)[^1] == "history anonymous", "switched URL receives no explicit credentials");
+                    }
+
+                    // A history endpoint can be public while a selected revision's changed-path
+                    // endpoint requires credentials. Sign-in retries only that path request.
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_URL", "svn://fixture.test/trunk");
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_AUTH_HISTORY", "0");
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_AUTH", "1");
+                    using (var pathAuthenticated = new SvnRepository(workingCopy))
+                    {
+                        await pathAuthenticated.RefreshAsync();
+                        await WaitForPaths(pathAuthenticated);
+                        Check(pathAuthenticated.HasError && pathAuthenticated.HasPathsError && pathAuthenticated.NeedsCredentials && pathAuthenticated.Revisions.Count == 100, "selected paths request credentials while preserving history");
+                        var historyCallsBeforeSignIn = CountHistoryCalls(fakeCalls);
+                        pathAuthenticated.Username = "fixture";
+                        pathAuthenticated.Password = "ui-fixture-password";
+                        await pathAuthenticated.SignInAsync();
+                        await WaitForPaths(pathAuthenticated);
+                        Check(!pathAuthenticated.HasError && !pathAuthenticated.NeedsCredentials && !pathAuthenticated.HasPathsError, "sign-in retries selected paths");
+                        Check(pathAuthenticated.ChangedPaths.Count == 2, "authenticated changed paths loaded");
+                        Check(CountHistoryCalls(fakeCalls) == historyCallsBeforeSignIn, "path sign-in preserves the loaded history page");
+                    }
+
+                    // Public history and changed paths can still require credentials for file content.
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_AUTH", "0");
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_AUTH", "1");
+                    using (var diffAuthenticated = new SvnRepository(workingCopy))
+                    {
+                        window.Content = new SourceGit.Views.LauncherPage { DataContext = new LauncherPage(node, diffAuthenticated) };
+                        await diffAuthenticated.RefreshAsync();
+                        await WaitForPaths(diffAuthenticated);
+                        Dispatcher.UIThread.RunJobs();
+                        var diffAuthPathsGrid = window.GetVisualDescendants().OfType<DataGrid>()
+                            .Single(candidate => ReferenceEquals(candidate.ItemsSource, diffAuthenticated.ChangedPaths));
+                        var diffAuthPath = await SelectChangedPath(diffAuthenticated, diffAuthPathsGrid, 104, path => path.Kind == "file");
+                        Check(diffAuthenticated.NeedsCredentials && diffAuthenticated.HasDiffError && ReferenceEquals(diffAuthenticated.SelectedChangedPath, diffAuthPath),
+                            "file-content request prompts for credentials without losing the selected file");
+                        var historyCallsBeforeSignIn = CountHistoryCalls(fakeCalls);
+                        diffAuthenticated.Username = "fixture";
+                        diffAuthenticated.Password = "ui-fixture-password";
+                        await diffAuthenticated.SignInAsync();
+                        await WaitForDiff(diffAuthenticated);
+                        Check(!diffAuthenticated.NeedsCredentials && !diffAuthenticated.HasDiffError && diffAuthenticated.IsTextDiff &&
+                            ReferenceEquals(diffAuthenticated.SelectedChangedPath, diffAuthPath), "sign-in retries the same selected-file diff");
+                        Check(diffAuthenticated.DiffBeforeText.Contains("103", StringComparison.Ordinal) && diffAuthenticated.DiffAfterText.Contains("104", StringComparison.Ordinal),
+                            "authenticated selected-file diff retains its historical endpoints");
+                        Check(CountHistoryCalls(fakeCalls) == historyCallsBeforeSignIn, "file sign-in preserves the loaded history page");
+                    }
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_AUTH_HISTORY", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_AUTH", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_AUTH", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_ROOT", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_URL", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_REVISION", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_STARTED", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_REVISION", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_STARTED", null);
+                    preferences.SvnInstallPath = realExecutable;
+                    Console.WriteLine("Authentication and credential-switch checks completed.");
+
+                    // Saved SVN metadata must not override current Git ownership of the path.
+                    var converted = Path.Combine(temporary, "converted-working-copy");
+                    await Run("svn", "checkout", "--config-dir", config, url, converted);
+                    var convertedNode = preferences.FindOrAddNodeByRepositoryPath(converted, null, false, false);
+                    convertedNode.IsSvn = true;
+                    await Run("git", "-C", converted, "init");
+                    await Run("git", "-C", converted, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "--allow-empty", "-m", "Git fixture");
+                    restored.OpenRepositoryInTab(convertedNode, null);
+                    try
+                    {
+                        Check(restored.ActivePage.Data is Repository && !convertedNode.IsSvn, "saved SVN node becomes Git when a Git marker takes precedence");
+                    }
+                    finally
+                    {
+                        if (restored.ActivePage.Data is Repository or SvnRepository)
+                            restored.CloseTab(restored.ActivePage);
+                    }
+                    Directory.Delete(Path.Combine(converted, ".git"), true);
+                    restored.OpenRepositoryInTab(convertedNode, null);
+                    Check(restored.ActivePage.Data is SvnRepository && convertedNode.IsSvn, "saved node returns to SVN after Git marker removal");
+                    restored.CloseTab(restored.ActivePage);
+                    window.Close();
+                    Console.WriteLine("Screenshots: " + screenshotDirectory);
+                    return true;
+                }, uiTimeout.Token);
+            }
+            finally
+            {
+                // Dispatch may complete inline on the session thread. Dispose joins that
+                // thread, so it must run elsewhere even when a check fails.
+                await Task.Run(session.Dispose).ConfigureAwait(false);
+            }
+
 
             Check(s_checks >= 25, "headless workflow executed all checks");
             Console.WriteLine($"{s_checks} SVN UI and working-copy workflow checks passed.");
@@ -259,6 +527,83 @@ internal static class Program
         s_checks++;
     }
 
+    private static async Task VerifySnapshotDiffs(string temporary)
+    {
+        var submoduleBefore = Encoding.UTF8.GetBytes("Subproject commit 1111111111111111111111111111111111111111\n");
+        var submoduleAfter = Encoding.UTF8.GetBytes("Subproject commit 2222222222222222222222222222222222222222\n");
+        var submodule = await SourceGit.Commands.SnapshotDiff.ReadAsync(submoduleBefore, submoduleAfter);
+        Check(submodule.Status == "Ready" && !submodule.IsBinary && submodule.Diff != null,
+            "snapshot diff keeps submodule-looking text as text");
+        Check(submodule.Diff.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Deleted && line.Content.StartsWith("Subproject commit", StringComparison.Ordinal)) &&
+            submodule.Diff.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Added && line.Content.StartsWith("Subproject commit", StringComparison.Ordinal)),
+            "snapshot diff parses submodule-looking text lines");
+
+        var lfsBefore = Encoding.UTF8.GetBytes("version https://git-lfs.github.com/spec/v1\noid sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nsize 11\n");
+        var lfsAfter = Encoding.UTF8.GetBytes("version https://git-lfs.github.com/spec/v1\noid sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\nsize 22\n");
+        var lfs = await SourceGit.Commands.SnapshotDiff.ReadAsync(lfsBefore, lfsAfter);
+        Check(lfs.Status == "Ready" && !lfs.IsBinary && lfs.Diff != null,
+            "snapshot diff keeps Git LFS pointer-looking text as text");
+        Check(lfs.Diff.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Deleted && line.Content.StartsWith("oid sha256:", StringComparison.Ordinal)) &&
+            lfs.Diff.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Added && line.Content.StartsWith("oid sha256:", StringComparison.Ordinal)),
+            "snapshot diff parses LFS pointer content lines");
+
+        var large = Encoding.UTF8.GetBytes(new string('x', 2 * 1024 * 1024 + 1));
+        var tooLarge = await SourceGit.Commands.SnapshotDiff.ReadAsync(Array.Empty<byte>(), large);
+        Check(tooLarge.Status == "TooLarge", "snapshot diff enforces its text-size limit");
+
+        var utf16 = Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes("UTF16 before\n")).ToArray();
+        var utf16After = Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes("UTF16 after\n")).ToArray();
+        var unicodeDiff = await SourceGit.Commands.SnapshotDiff.ReadAsync(utf16, utf16After);
+        Check(unicodeDiff.Status == "Ready" && !unicodeDiff.IsBinary && unicodeDiff.Diff?.AddedLines == 1,
+            "UTF16 snapshots render as text");
+
+        var inherited = new System.Collections.Generic.Dictionary<string, string>
+        {
+            ["GIT_DIR"] = Path.Combine(temporary, "missing.git"),
+            ["GIT_INDEX_FILE"] = Path.Combine(temporary, "untouched.index"),
+            ["GIT_EXTERNAL_DIFF"] = Path.Combine(temporary, "must-not-execute"),
+            ["GIT_CONFIG_COUNT"] = "1",
+            ["GIT_CONFIG_KEY_0"] = "diff.external",
+            ["GIT_CONFIG_VALUE_0"] = Path.Combine(temporary, "must-not-execute"),
+        };
+        var originalEnvironment = inherited.Keys.ToDictionary(key => key, Environment.GetEnvironmentVariable);
+        try
+        {
+            foreach (var entry in inherited)
+                Environment.SetEnvironmentVariable(entry.Key, entry.Value);
+            var isolated = await SourceGit.Commands.SnapshotDiff.ReadAsync(Encoding.UTF8.GetBytes("before\n"), Encoding.UTF8.GetBytes("after\n"));
+            Check(isolated.Status == "Ready" && isolated.Diff != null && !File.Exists(inherited["GIT_INDEX_FILE"]),
+                "snapshot diff isolates repository and external-driver environment");
+        }
+        finally
+        {
+            foreach (var entry in originalEnvironment)
+                Environment.SetEnvironmentVariable(entry.Key, entry.Value);
+        }
+    }
+
+    private static async Task VerifyOrdinaryGitDiff(string temporary)
+    {
+        var repository = Path.Combine(temporary, "git-diff-fixture");
+        Directory.CreateDirectory(repository);
+        var file = Path.Combine(repository, "tracked.txt");
+        await Run("git", "-C", repository, "init");
+        await Run("git", "-C", repository, "config", "user.name", "Fixture");
+        await Run("git", "-C", repository, "config", "user.email", "fixture@example.test");
+        File.WriteAllText(file, "before from Git\n");
+        await Run("git", "-C", repository, "add", "--", file);
+        await Run("git", "-C", repository, "commit", "-m", "diff fixture");
+        File.WriteAllText(file, "after from Git\n");
+
+        var change = new SourceGit.Models.Change { Path = "tracked.txt", WorkTree = SourceGit.Models.ChangeState.Modified };
+        var result = await new SourceGit.Commands.Diff(repository,
+            new SourceGit.Models.DiffOption(change, true), 3, false, false).ReadAsync();
+        Check(!result.IsBinary && result.TextDiff != null, "ordinary Git diff still returns parsed text");
+        Check(result.TextDiff.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Deleted && line.Content.Contains("before from Git", StringComparison.Ordinal)) &&
+            result.TextDiff.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Added && line.Content.Contains("after from Git", StringComparison.Ordinal)),
+            "ordinary Git diff retains before and after lines");
+    }
+
     private static async Task<int> RunFakeSvn(string[] args)
     {
         var root = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_ROOT");
@@ -267,30 +612,227 @@ internal static class Program
             return 2;
         if (args[0] == "info")
         {
-            Console.WriteLine($"<info><entry revision=\"104\"><url>{SecurityElement.Escape(url)}</url><repository><root>{SecurityElement.Escape(url)}</root></repository><wc-info><wcroot-abspath>{SecurityElement.Escape(root)}</wcroot-abspath></wc-info></entry></info>");
+            if (args.Contains("--revision", StringComparer.Ordinal))
+            {
+                var password = args.Contains("--password-from-stdin", StringComparer.Ordinal)
+                    ? await Console.In.ReadLineAsync()
+                    : null;
+                if (Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_AUTH") == "1" && !CheckFakeCredentials(args, password, url))
+                    return 1;
+
+                var revision = GetRequestedRevision(args);
+                await DelayPathResponse(revision);
+                Console.WriteLine($"<info><entry revision=\"{revision}\"><url>{SecurityElement.Escape(url)}</url><repository><root>svn://fixture.test</root></repository></entry></info>");
+                return 0;
+            }
+
+            Console.WriteLine($"<info><entry revision=\"104\"><url>{SecurityElement.Escape(url)}</url><repository><root>svn://fixture.test</root></repository><wc-info><wcroot-abspath>{SecurityElement.Escape(root)}</wcroot-abspath></wc-info></entry></info>");
             return 0;
         }
 
-        File.AppendAllText(Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS"), args.Contains("--username") ? "authenticated\n" : "anonymous\n");
-        if (!args.Contains("--no-auth-cache"))
+        if (args[0] is "proplist" or "cat")
+        {
+            var command = args[0];
+            var revision = GetRequestedRevision(args);
+            var target = GetCommandTarget(args);
+            File.AppendAllText(Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS"), $"{command} {revision} {target}\n");
+            await DelayDiffResponse(revision);
+            var filePasswordFromStdin = args.Contains("--password-from-stdin", StringComparer.Ordinal)
+                ? await Console.In.ReadLineAsync()
+                : null;
+            if (Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_AUTH") == "1" &&
+                !CheckFakeCredentials(args, filePasswordFromStdin, url))
+                return 1;
+
+            if (command == "proplist")
+            {
+                var mimeType = target.Contains("binary.dat", StringComparison.OrdinalIgnoreCase)
+                    ? "application/octet-stream"
+                    : null;
+                var property = mimeType == null
+                    ? string.Empty
+                    : $"<property name=\"svn:mime-type\">{mimeType}</property>";
+                Console.WriteLine($"<properties><target path=\"{SecurityElement.Escape(target)}\">{property}</target></properties>");
+                return 0;
+            }
+
+            var content = GetFakeFileContent(target, revision);
+            var standardOutput = Console.OpenStandardOutput();
+            await standardOutput.WriteAsync(content);
+            await standardOutput.FlushAsync();
+            return 0;
+        }
+
+        var isPathsQuery = args.Contains("--verbose", StringComparer.Ordinal);
+        File.AppendAllText(Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS"),
+            (isPathsQuery ? "paths " : "history ") + (args.Contains("--username", StringComparer.Ordinal) ? "authenticated\n" : "anonymous\n"));
+        var historyNeedsAuth = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_AUTH_HISTORY") != "0";
+        var pathsNeedAuth = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_AUTH") == "1";
+        var passwordFromStdin = args.Contains("--password-from-stdin", StringComparer.Ordinal)
+            ? await Console.In.ReadLineAsync()
+            : null;
+        if (!args.Contains("--no-auth-cache", StringComparer.Ordinal))
             return 3;
-        if (!args.Contains("--username"))
+        if ((isPathsQuery && pathsNeedAuth) || (!isPathsQuery && historyNeedsAuth))
         {
-            Console.Error.WriteLine("svn: E170001: Authentication required");
-            return 1;
+            if (!CheckFakeCredentials(args, passwordFromStdin, url))
+                return 1;
         }
-        var password = await Console.In.ReadLineAsync();
-        if (password != "ui-fixture-password" || url != "svn://fixture.test/trunk")
+
+        if (isPathsQuery)
         {
-            Console.Error.WriteLine($"svn: E170001: Authentication failed {password}");
-            return 1;
+            var pathRevision = GetRequestedRevision(args);
+            await DelayPathResponse(pathRevision);
+            Console.WriteLine(CreateFakeChangedPathsXml(pathRevision));
+            return 0;
         }
+
         var range = args[Array.IndexOf(args, "--revision") + 1];
         Console.WriteLine("<log>");
         foreach (var revision in range == "HEAD:0" ? Enumerable.Range(5, 100).Reverse() : new[] { 1 })
             Console.WriteLine($"<logentry revision=\"{revision}\"><author>fixture</author><msg>Revision {revision}</msg></logentry>");
         Console.WriteLine("</log>");
         return 0;
+    }
+
+    private static bool CheckFakeCredentials(string[] args, string password, string url)
+    {
+        if (!args.Contains("--username", StringComparer.Ordinal))
+        {
+            Console.Error.WriteLine("svn: E170001: Authentication required");
+            return false;
+        }
+
+        if (password != "ui-fixture-password" || url != "svn://fixture.test/trunk")
+        {
+            Console.Error.WriteLine($"svn: E170001: Authentication failed {password}");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static long GetRequestedRevision(string[] args)
+    {
+        var revisionIndex = Array.IndexOf(args, "--revision");
+        if (revisionIndex < 0 || revisionIndex + 1 >= args.Length)
+            return 0;
+
+        var range = args[revisionIndex + 1];
+        var separator = range.IndexOf(':');
+        var value = separator >= 0 ? range[..separator] : range;
+        return long.TryParse(value, out var revision) ? revision : 0;
+    }
+
+    private static string GetCommandTarget(string[] args)
+    {
+        var target = args[^1];
+        var peg = target.LastIndexOf('@');
+        return peg >= 0 ? target[..peg] : target;
+    }
+
+    private static byte[] GetFakeFileContent(string target, long revision)
+    {
+        var path = Uri.UnescapeDataString(target);
+        if (path.Contains("old name.txt", StringComparison.Ordinal))
+            return System.Text.Encoding.UTF8.GetBytes("Copied baseline at revision 103\nline baseline\n");
+        if (path.Contains("长文件名", StringComparison.Ordinal))
+            return System.Text.Encoding.UTF8.GetBytes("Copied target at revision 104\nline updated\n");
+        if (path.Contains("empty.txt", StringComparison.Ordinal))
+            return Array.Empty<byte>();
+        if (path.Contains("binary.dat", StringComparison.Ordinal))
+            return revision == 100 ? [0x00, 0x01, 0x02, 0x03] : [0x00, 0x01, 0x02];
+        if (path.Contains("same.txt", StringComparison.Ordinal))
+            return System.Text.Encoding.UTF8.GetBytes("unchanged across these revisions\n");
+        if (path.Contains("large.txt", StringComparison.Ordinal))
+        {
+            var content = new byte[2 * 1024 * 1024 + 1];
+            Array.Fill(content, (byte)'x');
+            return content;
+        }
+
+        return System.Text.Encoding.UTF8.GetBytes($"Revision {revision}\n");
+    }
+
+    private static async Task DelayPathResponse(long revision)
+    {
+        if (!long.TryParse(Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_REVISION"), out var delayedRevision) ||
+            delayedRevision != revision)
+            return;
+
+        var marker = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_STARTED");
+        if (!string.IsNullOrEmpty(marker))
+            File.WriteAllText(marker, revision.ToString());
+        await Task.Delay(TimeSpan.FromSeconds(2));
+    }
+
+    private static async Task DelayDiffResponse(long revision)
+    {
+        if (!long.TryParse(Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_REVISION"), out var delayedRevision) ||
+            delayedRevision != revision)
+            return;
+
+        var marker = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_STARTED");
+        if (!string.IsNullOrEmpty(marker))
+            File.WriteAllText(marker, revision.ToString());
+        await Task.Delay(TimeSpan.FromSeconds(2));
+    }
+
+    private static string CreateFakeChangedPathsXml(long revision)
+    {
+        if (revision == 104)
+        {
+            const string longDirectory = "/trunk/目录/非常深的子目录名称/用于验证窄窗口文字裁切和工具提示行为的长路径/";
+            var longFile = longDirectory + "由历史修订复制而来的长文件名-保持Unicode-源文件.txt";
+            return "<log><logentry revision=\"104\"><paths>" +
+                "<path action=\"A\" kind=\"dir\">/trunk/目录/非常深的子目录名称</path>" +
+                $"<path action=\"A\" kind=\"file\" copyfrom-path=\"/archive/old name.txt\" copyfrom-rev=\"103\">{SecurityElement.Escape(longFile)}</path>" +
+                "</paths></logentry></log>";
+        }
+
+        if (revision == 102)
+            return "<log><logentry revision=\"102\"><paths><path action=\"A\" kind=\"file\" copyfrom-path=\"/source.txt\" copyfrom-rev=\"101\">/trunk/revision-102.txt</path></paths></logentry></log>";
+
+        if (revision == 5)
+            return "<log><logentry revision=\"5\"><paths /></logentry></log>";
+
+        if (revision == 101)
+            return "<log><logentry revision=\"101\"><paths><path action=\"A\" kind=\"file\">/trunk/empty.txt</path></paths></logentry></log>";
+
+        if (revision == 100)
+            return "<log><logentry revision=\"100\"><paths><path action=\"M\" kind=\"file\">/trunk/binary.dat</path></paths></logentry></log>";
+
+        if (revision == 99)
+            return "<log><logentry revision=\"99\"><paths><path action=\"A\" kind=\"dir\">/trunk/new-directory</path><path action=\"A\" kind=\"file\">/trunk/binary.dat</path></paths></logentry></log>";
+
+        if (revision == 97)
+            return "<log><logentry revision=\"97\"><paths><path action=\"M\" kind=\"file\">/trunk/same.txt</path></paths></logentry></log>";
+
+        if (revision == 96)
+            return "<log><logentry revision=\"96\"><paths><path action=\"A\" kind=\"file\">/trunk/large.txt</path></paths></logentry></log>";
+
+        return $"<log><logentry revision=\"{revision}\"><paths><path action=\"M\" kind=\"file\">/trunk/revision-{revision}.txt</path></paths></logentry></log>";
+    }
+
+    private static int CountHistoryCalls(string path) =>
+        File.ReadAllLines(path).Count(line => line.StartsWith("history ", StringComparison.Ordinal));
+
+    private static Task WaitForPaths(SvnRepository repository) => WaitUntil(() => !repository.IsLoadingPaths);
+    private static Task WaitForDiff(SvnRepository repository) => WaitUntil(() => !repository.IsLoadingDiff);
+
+    private static async Task<SourceGit.Native.SvnChangedPath> SelectChangedPath(SvnRepository repository, DataGrid pathsGrid,
+        long revision, Func<SourceGit.Native.SvnChangedPath, bool> matches, bool waitForDiff = true)
+    {
+        repository.SelectedRevision = repository.Revisions.Single(item => item.Number == revision);
+        await WaitForPaths(repository);
+        Check(repository.SelectedChangedPath == null, "revision change clears the selected file");
+        Dispatcher.UIThread.RunJobs();
+        var path = repository.ChangedPaths.Single(matches);
+        pathsGrid.SelectedItem = path;
+        Dispatcher.UIThread.RunJobs();
+        if (waitForDiff)
+            await WaitForDiff(repository);
+        return path;
     }
 
     private static async Task WaitUntil(Func<bool> condition)

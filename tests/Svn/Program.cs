@@ -30,6 +30,7 @@ internal static class Program
         "blank-config-secret",
         "policy-secret",
     };
+    private static readonly string s_escapedSnapshotName = OperatingSystem.IsWindows() ? "raw % @ Unicode🌱.txt" : "raw % @\\Unicode🌱.txt";
     private static int s_passed;
 
     private static async Task<int> Main(string[] args)
@@ -62,7 +63,7 @@ internal static class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] == "info" || args[0] == "log" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -107,6 +108,54 @@ internal static class Program
         {
             switch (scenario)
             {
+                case "changed_paths_file_diff":
+                case "changed_paths_file_diff_auth":
+                case "changed_paths_file_diff_slow":
+                case "changed_paths_file_diff_overflow":
+                    if (scenario == "changed_paths_file_diff_auth" && !args.Contains("--username", StringComparer.Ordinal))
+                    {
+                        Console.Error.WriteLine("svn: E170001: Authentication required");
+                        return 1;
+                    }
+                    Console.WriteLine("<log><logentry revision=\"6\"><paths>" +
+                        "<path action=\"M\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/Unicode @ %\\slash.txt</path>" +
+                        "<path action=\"A\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/empty @ file.txt</path>" +
+                        "<path action=\"A\" kind=\"file\" copyfrom-path=\"/repos/archive/来源 @%/baseline.txt\" copyfrom-rev=\"3\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/copied @ file.txt</path>" +
+                        "<path action=\"D\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/deleted.bin</path>" +
+                        "<path action=\"R\" kind=\"file\" copyfrom-path=\"/repos/archive/ignored-copy\" copyfrom-rev=\"4\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/replaced @ file.txt</path>" +
+                        "<path action=\"M\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/binary @ file.dat</path>" +
+                        "<path action=\"M\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/invalid-utf8.bin</path>" +
+                        "<path action=\"A\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/utf16.txt</path>" +
+                        "<path action=\"M\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/special-link</path>" +
+                        "<path action=\"A\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/overflow.dat</path>" +
+                        "<path action=\"D\" kind=\"unknown\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/unknown-deleted.txt</path>" +
+                        "<path action=\"M\" kind=\"dir\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/directory</path>" +
+                        "</paths></logentry></log>");
+                    return 0;
+                case "changed_paths_main":
+                case "changed_paths_auth":
+                    Console.WriteLine("<log><logentry revision=\"6\"><paths><path action=\"A\" kind=\"file\" copyfrom-path=\"/repos/archive/来源 @ 文件.txt\" copyfrom-rev=\"4\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/文档.txt</path><path action=\"D\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/old.txt</path><path action=\"R\" kind=\"dir\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/replaced</path><path action=\"M\" kind=\"file\">/repos/branches/历史 @ scope/child @ nested/deeper @ scope/slash\\name.txt</path><path action=\"A\" kind=\"dir\" copyfrom-path=\"/repos/archive/祖先 @\" copyfrom-rev=\"5\">/repos/branches/历史 @ scope</path><path action=\"M\" kind=\"dir\">/repos/branches/历史 @ scope/child @ nested</path><path action=\"M\" kind=\"file\">/repos/branches/历史 @ scope-neighbor/child @ nested/outside.txt</path><path action=\"M\" kind=\"file\">/repos/other/unrelated.txt</path></paths></logentry></log>");
+                    return 0;
+                case "changed_paths_gap":
+                    Console.WriteLine("<log><logentry revision=\"8\"><paths><path action=\"M\" kind=\"file\">/repos/other/unrelated.txt</path><path action=\"M\" kind=\"file\">/repos/branches/历史 @ scope-neighbor/file.txt</path></paths></logentry></log>");
+                    return 0;
+                case "changed_paths_dtd":
+                    Console.WriteLine("<!DOCTYPE log [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]><log><logentry revision=\"6\"><paths><path action=\"M\" kind=\"file\">&xxe;</path></paths></logentry></log>");
+                    return 0;
+                case "changed_paths_malformed":
+                    Console.WriteLine("<log><logentry revision=\"not-a-number\"><paths><path action=\"M\" kind=\"file\">/repos/branches/path</path></paths></logentry></log>");
+                    return 0;
+                case "changed_paths_large":
+                    Console.Write("<log><logentry revision=\"6\"><paths><path action=\"M\" kind=\"file\">/repos/");
+                    await Console.Out.WriteAsync(new string('x', 12 * 1024 * 1024 + 8)).ConfigureAwait(false);
+                    Console.WriteLine("</path></paths></logentry></log>");
+                    return 0;
+                case "changed_paths_slow":
+                    await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+                    return 0;
+                case "changed_paths_auth_leak":
+                    Console.Error.WriteLine($"svn: E170001: Authentication failed: {input}");
+                    return 1;
                 case "history_paged":
                     var revisionIndex = Array.IndexOf(args, "--revision");
                     if (revisionIndex >= 0 && revisionIndex + 1 < args.Length && args[revisionIndex + 1] == "7:0")
@@ -154,6 +203,94 @@ internal static class Program
                 Console.WriteLine("<info><entry revision=\"12\"><url>svn://fixture/repo</url><repository><root>svn://fixture</root></repository></entry></info>");
             else
                 WriteWorkingCopyInfo();
+            return 0;
+        }
+
+        if (args[0] == "info" && scenario.StartsWith("changed_paths_", StringComparison.Ordinal))
+        {
+            if (!args.Contains("--revision", StringComparer.Ordinal))
+            {
+                WriteWorkingCopyInfo();
+                return 0;
+            }
+
+            if (scenario == "changed_paths_auth" && !args.Contains("--username", StringComparer.Ordinal))
+            {
+                Console.Error.WriteLine("svn: E170001: Authentication required");
+                return 1;
+            }
+
+            var endpoint = args[^1];
+            if (args.Contains("--revision", StringComparer.Ordinal) && endpoint.Contains("/repos/branches/", StringComparison.Ordinal))
+            {
+                var peg = endpoint.LastIndexOf('@');
+                var url = peg > 0 ? endpoint[..peg] : endpoint;
+                Console.WriteLine($"<info><entry kind=\"file\" path=\"fixture\" revision=\"6\"><url>{System.Security.SecurityElement.Escape(url)}</url><repository><root>svn://fixture</root></repository></entry></info>");
+                return 0;
+            }
+
+            Console.WriteLine("<info><entry kind=\"file\" path=\"fixture\" revision=\"6\"><url>svn://fixture/repos/branches/%E5%8E%86%E5%8F%B2%20%40%20scope/child%20%40%20nested/deeper%20%40%20scope</url><repository><root>svn://fixture</root></repository></entry></info>");
+            return 0;
+        }
+
+        if (args[0] == "proplist" && scenario.StartsWith("changed_paths_file_diff", StringComparison.Ordinal))
+        {
+            var target = args[^1];
+            if (target.Contains("binary%20%40%20file.dat", StringComparison.Ordinal))
+                Console.WriteLine("<properties><target path=\"fixture\"><property name=\"svn:mime-type\">application/octet-stream</property></target></properties>");
+            else if (target.Contains("deleted.bin", StringComparison.Ordinal))
+                Console.WriteLine("<properties><target path=\"fixture\"><property name=\"svn:mime-type\">application/octet-stream</property></target></properties>");
+            else if (target.Contains("special-link", StringComparison.Ordinal))
+                Console.WriteLine("<properties><target path=\"fixture\"><property name=\"svn:special\">*</property></target></properties>");
+            else
+                Console.WriteLine("<properties><target path=\"fixture\" /></properties>");
+            return 0;
+        }
+
+        if (args[0] == "cat" && scenario.StartsWith("changed_paths_file_diff", StringComparison.Ordinal))
+        {
+            if (scenario == "changed_paths_file_diff_slow")
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+                return 0;
+            }
+
+            var target = args[^1];
+            if (scenario == "changed_paths_file_diff_overflow" && target.Contains("overflow.dat", StringComparison.Ordinal))
+            {
+                var output = Console.OpenStandardOutput();
+                var block = new byte[64 * 1024];
+                while (true)
+                    await output.WriteAsync(block.AsMemory()).ConfigureAwait(false);
+            }
+
+            byte[] bytes;
+            if (target.Contains("empty%20%40%20file.txt", StringComparison.Ordinal))
+                bytes = Array.Empty<byte>();
+            else if (target.Contains("binary%20%40%20file.dat", StringComparison.Ordinal))
+                bytes = new byte[] { 0, 255, 1, 2 };
+            else if (target.Contains("invalid-utf8.bin", StringComparison.Ordinal))
+                bytes = new byte[] { 0xC3, 0x28 };
+            else if (target.Contains("utf16.txt", StringComparison.Ordinal))
+                bytes = new byte[] { 0xFF, 0xFE }.Concat(Encoding.Unicode.GetBytes("BOM text 🌱\n")).ToArray();
+            else if (target.Contains("special-link", StringComparison.Ordinal))
+                bytes = Encoding.UTF8.GetBytes("link safe target");
+            else if (target.Contains("baseline.txt", StringComparison.Ordinal))
+                bytes = Encoding.UTF8.GetBytes("copy source baseline\n");
+            else if (target.Contains("copied%20%40%20file.txt", StringComparison.Ordinal))
+                bytes = Encoding.UTF8.GetBytes(target.EndsWith("@3", StringComparison.Ordinal) ? "copy source baseline\n" : "copied destination\n");
+            else if (target.Contains("Unicode%20%40%20%25%5Cslash.txt", StringComparison.Ordinal))
+                bytes = Encoding.UTF8.GetBytes(target.EndsWith("@5", StringComparison.Ordinal) ? "before Unicode @ % \\ slash\n" : "after Unicode @ % \\ slash\n");
+            else if (target.Contains("deleted.bin", StringComparison.Ordinal))
+                bytes = new byte[] { 3, 0, 4 };
+            else if (target.Contains("replaced%20%40%20file.txt", StringComparison.Ordinal))
+                bytes = Encoding.UTF8.GetBytes(target.EndsWith("@5", StringComparison.Ordinal) ? "old replacement target\n" : "new replacement target\n");
+            else if (target.Contains("unknown-deleted.txt", StringComparison.Ordinal))
+                bytes = Encoding.UTF8.GetBytes("unknown-kind deleted baseline\n");
+            else
+                bytes = Encoding.UTF8.GetBytes("overflow test\n");
+
+            await Console.OpenStandardOutput().WriteAsync(bytes.AsMemory()).ConfigureAwait(false);
             return 0;
         }
 
@@ -439,6 +576,284 @@ internal static class Program
             var calls = ReadInvocations(invocations);
             Equal(2, calls.Count);
             True(!IsProcessRunning(calls[1].ProcessId), "cancelled history child process remained alive");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("selected revision paths preserve actions, copy ancestry, Unicode, and boundary-aware scope", async () =>
+        {
+            const string expectedUrl = "svn://fixture/repos/path%20with%20space%20%40";
+            var originalContents = await File.ReadAllTextAsync(workingCopyPath).ConfigureAwait(false);
+            var invocations = PrepareHistoryScenario(temp.Path, "changed_paths_main", workingCopyPath);
+            var result = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", result.Status);
+            Equal(6, result.Paths.Count);
+            var ancestorCopy = result.Paths.Single(path => path.Path == "/repos/branches/历史 @ scope");
+            Equal(".", ancestorCopy.RelativePath);
+            Equal("A", ancestorCopy.Action);
+            Equal("dir", ancestorCopy.Kind);
+            Equal("/repos/archive/祖先 @", ancestorCopy.CopyFromPath);
+            Equal(5L, ancestorCopy.CopyFromRevision);
+
+            var added = result.Paths.Single(path => path.Action == "A" && path.Kind == "file");
+            Equal("文档.txt", added.RelativePath);
+            Equal("/repos/archive/来源 @ 文件.txt", added.CopyFromPath);
+            Equal(4L, added.CopyFromRevision);
+            var deleted = result.Paths.Single(path => path.Action == "D");
+            Equal("old.txt", deleted.RelativePath);
+            var replaced = result.Paths.Single(path => path.Action == "R");
+            Equal("replaced", replaced.RelativePath);
+            var ancestorModification = result.Paths.Single(path => path.Path == "/repos/branches/历史 @ scope/child @ nested");
+            Equal(".", ancestorModification.RelativePath);
+            Equal("M", ancestorModification.Action);
+            var backslashName = result.Paths.Single(path => path.Path.EndsWith("/slash\\name.txt", StringComparison.Ordinal));
+            Equal("slash\\name.txt", backslashName.RelativePath);
+
+            var calls = ReadInvocations(invocations);
+            Equal(3, calls.Count);
+            var historicalInfo = calls[1];
+            Equal("6", ArgumentAfter(historicalInfo, "--revision"));
+            Equal("svn://fixture/repos/path%20with%20space%20%40@12", historicalInfo.Arguments[^1]);
+            var log = calls[2];
+            Equal("6:6", ArgumentAfter(log, "--revision"));
+            True(log.Arguments.Contains("--verbose", StringComparer.Ordinal), "selected-revision log did not request verbose paths");
+            Equal("svn://fixture/repos/branches/%E5%8E%86%E5%8F%B2%20%40%20scope/child%20%40%20nested/deeper%20%40%20scope@6", log.Arguments[^1]);
+            Equal(originalContents, await File.ReadAllTextAsync(workingCopyPath).ConfigureAwait(false));
+
+            var gapCalls = PrepareHistoryScenario(temp.Path, "changed_paths_gap", workingCopyPath);
+            var gap = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 8, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", gap.Status);
+            Equal(0, gap.Paths.Count);
+            Equal("8:8", ArgumentAfter(ReadInvocations(gapCalls)[2], "--revision"));
+        }).ConfigureAwait(false);
+
+        await CheckAsync("changed paths enforce the expected URL before explicit credentials are sent", async () =>
+        {
+            const string password = "regression-secret-42";
+            var invocations = PrepareHistoryScenario(temp.Path, "changed_paths_auth", workingCopyPath);
+            var result = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6,
+                new Svn.Credentials("alice", password, false), expectedUrl: "svn://fixture/previous-url").ConfigureAwait(false);
+            Equal("WorkingCopyChanged", result.Status);
+            Equal(1, ReadInvocations(invocations).Count);
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_auth", workingCopyPath);
+            result = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6,
+                new Svn.Credentials("alice", password, false), expectedUrl: "svn://fixture/repos/path%20with%20space%20%40").ConfigureAwait(false);
+            Equal("Ready", result.Status);
+            var calls = ReadInvocations(invocations);
+            Equal(3, calls.Count);
+            True(!calls[0].StdinReceived, "local working-copy info must not receive credentials");
+            AssertCredentialArguments(calls[1], "alice", password);
+            AssertCredentialArguments(calls[2], "alice", password);
+            True(calls.All(call => !call.PasswordArgumentPresent), "password appeared in changed-path process arguments");
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_auth_leak", workingCopyPath);
+            result = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6,
+                new Svn.Credentials("alice", password, false), expectedUrl: "svn://fixture/repos/path%20with%20space%20%40").ConfigureAwait(false);
+            Equal("AuthenticationFailed", result.Status);
+            True(!result.Details.Contains(password, StringComparison.Ordinal), "password leaked in changed-path diagnostics");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("changed-path XML rejects DTD, malformed, and oversized documents", async () =>
+        {
+            foreach (var scenario in new[] { "changed_paths_dtd", "changed_paths_malformed", "changed_paths_large" })
+            {
+                var invocations = PrepareHistoryScenario(temp.Path, scenario, workingCopyPath);
+                var result = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6,
+                    expectedUrl: "svn://fixture/repos/path%20with%20space%20%40").ConfigureAwait(false);
+                Equal("Failed", result.Status);
+                Equal(3, ReadInvocations(invocations).Count);
+            }
+        }).ConfigureAwait(false);
+
+        await CheckAsync("changed-path cancellation terminates its selected-revision log child", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "changed_paths_slow", workingCopyPath);
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            var cancelled = false;
+            try
+            {
+                await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6,
+                    cancellationToken: cancellation.Token,
+                    expectedUrl: "svn://fixture/repos/path%20with%20space%20%40").ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = true;
+            }
+
+            True(cancelled, "caller cancellation was converted to a normal changed-path result");
+            var calls = ReadInvocations(invocations);
+            Equal(3, calls.Count);
+            True(!IsProcessRunning(calls[2].ProcessId), "cancelled changed-path log child process remained alive");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("file snapshots follow changed-path actions and preserve raw endpoint bytes", async () =>
+        {
+            const string expectedUrl = "svn://fixture/repos/path%20with%20space%20%40";
+            const string scope = "/repos/branches/历史 @ scope/child @ nested/deeper @ scope/";
+            var workingCopyContents = await File.ReadAllBytesAsync(workingCopyPath).ConfigureAwait(false);
+
+            var invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var modifiedPath = scope + "Unicode @ %\\slash.txt";
+            var modified = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, modifiedPath,
+                expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", modified.Status);
+            Equal(modifiedPath, modified.Before.Path);
+            Equal(5L, modified.Before.Revision);
+            Equal(modifiedPath, modified.After.Path);
+            Equal(6L, modified.After.Revision);
+            Equal("before Unicode @ % \\ slash\n", Encoding.UTF8.GetString(modified.Before.Content));
+            Equal("after Unicode @ % \\ slash\n", Encoding.UTF8.GetString(modified.After.Content));
+            var modifiedCalls = ReadInvocations(invocations);
+            var modifiedCats = modifiedCalls.Where(call => call.Arguments[0] == "cat").ToList();
+            Equal(2, modifiedCats.Count);
+            True(modifiedCats.All(call => call.Arguments.Contains("--ignore-keywords", StringComparer.Ordinal)),
+                "svn cat did not disable keyword expansion");
+            Equal("svn://fixture/repos/branches/%E5%8E%86%E5%8F%B2%20%40%20scope/child%20%40%20nested/deeper%20%40%20scope/Unicode%20%40%20%25%5Cslash.txt@5",
+                ArgumentAfter(modifiedCats[0], "--"));
+            Equal("svn://fixture/repos/branches/%E5%8E%86%E5%8F%B2%20%40%20scope/child%20%40%20nested/deeper%20%40%20scope/Unicode%20%40%20%25%5Cslash.txt@6",
+                ArgumentAfter(modifiedCats[1], "--"));
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var emptyPath = scope + "empty @ file.txt";
+            var empty = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, emptyPath, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", empty.Status);
+            Equal(null, empty.Before);
+            True(empty.After != null, "an empty file was confused with an absent endpoint");
+            Equal(0, empty.After.Content.Length);
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var copiedPath = scope + "copied @ file.txt";
+            var copied = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, copiedPath, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", copied.Status);
+            Equal("/repos/archive/来源 @%/baseline.txt", copied.Before.Path);
+            Equal(3L, copied.Before.Revision);
+            Equal("copy source baseline\n", Encoding.UTF8.GetString(copied.Before.Content));
+            Equal(copiedPath, copied.After.Path);
+            Equal("copied destination\n", Encoding.UTF8.GetString(copied.After.Content));
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var deletedPath = scope + "deleted.bin";
+            var deleted = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, deletedPath, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", deleted.Status);
+            True(deleted.Before != null && deleted.After == null, "deleted-file endpoints did not preserve absence");
+            True(deleted.Before.IsBinary, "binary deleted snapshot was not marked binary");
+            SequenceEqual(new byte[] { 3, 0, 4 }, deleted.Before.Content);
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var replacedPath = scope + "replaced @ file.txt";
+            var replaced = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, replacedPath, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", replaced.Status);
+            Equal(replacedPath, replaced.Before.Path);
+            Equal(5L, replaced.Before.Revision);
+            Equal("old replacement target\n", Encoding.UTF8.GetString(replaced.Before.Content));
+            Equal(replacedPath, replaced.After.Path);
+            Equal("new replacement target\n", Encoding.UTF8.GetString(replaced.After.Content));
+            True(ReadInvocations(invocations).Where(call => call.Arguments[0] == "cat")
+                .All(call => !ArgumentAfter(call, "--").Contains("ignored-copy", StringComparison.Ordinal)),
+                "replacement incorrectly used its copy-from metadata as the old endpoint");
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var binaryPath = scope + "binary @ file.dat";
+            var binary = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, binaryPath, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", binary.Status);
+            True(binary.Before.IsBinary && binary.After.IsBinary, "non-text MIME metadata was not carried to both snapshots");
+            SequenceEqual(new byte[] { 0, 255, 1, 2 }, binary.After.Content);
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var invalidUtf8 = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "invalid-utf8.bin", expectedUrl: expectedUrl).ConfigureAwait(false);
+            True(invalidUtf8.Before.IsBinary && invalidUtf8.After.IsBinary, "invalid UTF-8 without NUL was not marked binary");
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var utf16 = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "utf16.txt", expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", utf16.Status);
+            True(!utf16.After.IsBinary, "valid UTF-16 BOM text was classified as binary");
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var special = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "special-link", expectedUrl: expectedUrl).ConfigureAwait(false);
+            True(special.Before.IsSpecial && special.After.IsSpecial, "svn:special metadata was not carried to both snapshots");
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var unknownPath = scope + "unknown-deleted.txt";
+            var unknown = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, unknownPath, expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", unknown.Status);
+            Equal("unknown-kind deleted baseline\n", Encoding.UTF8.GetString(unknown.Before.Content));
+            True(unknown.After == null, "unknown deleted path unexpectedly had an after snapshot");
+            var unknownInfo = ReadInvocations(invocations).Single(call => call.Arguments[0] == "info" && call.Arguments.Contains("--revision", StringComparer.Ordinal) &&
+                ArgumentAfter(call, "--").Contains("unknown-deleted.txt", StringComparison.Ordinal));
+            Equal("5", ArgumentAfter(unknownInfo, "--revision"));
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var directory = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "directory", expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Directory", directory.Status);
+            True(directory.IsDirectory, "directory change was not marked as a directory notice");
+            True(directory.Details.Contains("recursive expansion is not supported", StringComparison.Ordinal), "directory notice lost its scope");
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] is "cat" or "proplist"), "directory diff attempted to read recursive file contents");
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var notChanged = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, "/repos/other/not-changed.txt", expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("PathNotChanged", notChanged.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] is "cat" or "proplist"), "a path outside the authoritative changed-path list was read");
+
+            SequenceEqual(workingCopyContents, await File.ReadAllBytesAsync(workingCopyPath).ConfigureAwait(false));
+        }).ConfigureAwait(false);
+
+        await CheckAsync("file snapshots retain auth, identity, config, overflow, and cancellation safeguards", async () =>
+        {
+            const string expectedUrl = "svn://fixture/repos/path%20with%20space%20%40";
+            const string password = "regression-secret-42";
+            const string scope = "/repos/branches/历史 @ scope/child @ nested/deeper @ scope/";
+
+            var invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff_auth", workingCopyPath);
+            var unauthenticated = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "Unicode @ %\\slash.txt",
+                expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("AuthenticationRequired", unauthenticated.Status);
+            Equal(3, ReadInvocations(invocations).Count);
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff_auth", workingCopyPath);
+            var authenticated = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "Unicode @ %\\slash.txt",
+                new Svn.Credentials("alice", password, false), expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("Ready", authenticated.Status);
+            var calls = ReadInvocations(invocations);
+            True(calls.All(call => !call.PasswordArgumentPresent), "snapshot password appeared in process arguments");
+            True(!calls[0].StdinReceived, "working-copy identity lookup received credentials");
+            foreach (var call in calls.Where(call => call.Arguments[0] != "info" || call.Arguments.Contains("--revision", StringComparer.Ordinal)))
+                AssertCredentialArguments(call, "alice", password);
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var stale = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "Unicode @ %\\slash.txt",
+                new Svn.Credentials("alice", password, false), expectedUrl: "svn://fixture/previous-url").ConfigureAwait(false);
+            Equal("WorkingCopyChanged", stale.Status);
+            Equal(1, ReadInvocations(invocations).Count);
+            True(!ReadInvocations(invocations)[0].StdinReceived, "credentials were sent before the expected URL was checked");
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff", workingCopyPath);
+            var rememberedWithoutConfig = await Svn.GetFileDiffAsync(executable, string.Empty, workingCopyPath, 6, scope + "Unicode @ %\\slash.txt",
+                new Svn.Credentials("alice", password, true), expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("CredentialStorageUnavailable", rememberedWithoutConfig.Status);
+            Equal(1, ReadInvocations(invocations).Count);
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff_overflow", workingCopyPath);
+            var oversized = await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "overflow.dat", expectedUrl: expectedUrl).ConfigureAwait(false);
+            Equal("TooLarge", oversized.Status);
+            True(oversized.Before == null && oversized.After == null, "partial oversized content escaped as a snapshot");
+
+            invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff_slow", workingCopyPath);
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            var cancelled = false;
+            try
+            {
+                await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "overflow.dat",
+                    cancellationToken: cancellation.Token, expectedUrl: expectedUrl).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = true;
+            }
+
+            True(cancelled, "caller cancellation was converted to a normal file-diff result");
+            var cancelledCalls = ReadInvocations(invocations);
+            Equal("cat", cancelledCalls[^1].Arguments[0]);
+            True(!IsProcessRunning(cancelledCalls[^1].ProcessId), "cancelled cat process remained alive");
         }).ConfigureAwait(false);
 
         await CheckAsync("history failures redact passwords and classify authentication", async () =>
@@ -927,6 +1342,160 @@ internal static class Program
                 Equal(0, historyAuthFiles.Length);
             }).ConfigureAwait(false);
 
+            await CheckAsync("authenticated svnserve changed paths follow copied scope and preserve local edits", async () =>
+            {
+                var integrationConfig = Path.Combine(temp.Path, "integration changed paths config");
+                Directory.CreateDirectory(integrationConfig);
+                await File.WriteAllTextAsync(Path.Combine(integrationConfig, "config"),
+                    "[auth]\npassword-stores =\nstore-passwords = no\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
+                await File.WriteAllTextAsync(Path.Combine(integrationConfig, "servers"),
+                    "[global]\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
+
+                var integrationWorkingCopy = Path.Combine(temp.Path, "changed paths working copy");
+                await RunRequiredWithPasswordAsync(svn, "integration-correct-password",
+                    "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", integrationConfig,
+                    "--username", "alice", "--password-from-stdin", privateUrl + "/trunk", integrationWorkingCopy).ConfigureAwait(false);
+                var copiedTargetRelativePath = Path.Combine("copied @ scope", "renamed @ note.txt");
+                var targetPath = Path.Combine(integrationWorkingCopy, copiedTargetRelativePath);
+                var localContents = await File.ReadAllTextAsync(targetPath).ConfigureAwait(false);
+                await File.AppendAllTextAsync(targetPath, "uncommitted changed-path edit\n").ConfigureAwait(false);
+                var modifiedContents = await File.ReadAllTextAsync(targetPath).ConfigureAwait(false);
+                var statusBefore = await RunCaptureAsync(svn, "status", "--xml", targetPath + "@").ConfigureAwait(false);
+                True(statusBefore.StandardOutput.Contains("item=\"modified\"", StringComparison.Ordinal), "fixture failed to create a changed-path local modification");
+
+                var info = await Svn.GetWorkingCopyAsync(svn, integrationConfig, targetPath).ConfigureAwait(false);
+                Equal("Ready", info.Status);
+                True(Uri.UnescapeDataString(info.Url).EndsWith("/trunk/copied @ scope/renamed @ note.txt", StringComparison.Ordinal),
+                    $"working-copy URL did not identify the copied historical scope: {info.Url}");
+
+                var unauthenticated = await Svn.GetChangedPathsAsync(svn, integrationConfig, targetPath, 5, expectedUrl: info.Url).ConfigureAwait(false);
+                Equal("AuthenticationRequired", unauthenticated.Status);
+                var wrong = await Svn.GetChangedPathsAsync(svn, integrationConfig, targetPath, 5,
+                    new Svn.Credentials("alice", "wrong-changed-path-password", false), expectedUrl: info.Url).ConfigureAwait(false);
+                Equal("AuthenticationFailed", wrong.Status);
+                True(!wrong.Details.Contains("wrong-changed-path-password", StringComparison.Ordinal), "changed-path password leaked to diagnostics");
+
+                var copyRevision = await Svn.GetChangedPathsAsync(svn, integrationConfig, targetPath, 5,
+                    new Svn.Credentials("alice", "integration-correct-password", false), expectedUrl: info.Url).ConfigureAwait(false);
+                Equal("Ready", copyRevision.Status);
+                Equal(1, copyRevision.Paths.Count);
+                var directoryCopy = copyRevision.Paths[0];
+                Equal("/trunk/copied @ scope", directoryCopy.Path);
+                Equal(".", directoryCopy.RelativePath);
+                Equal("A", directoryCopy.Action);
+                Equal("dir", directoryCopy.Kind);
+                Equal("/trunk/nested @ folder", directoryCopy.CopyFromPath);
+                Equal(4L, directoryCopy.CopyFromRevision);
+
+                var preCopyRevision = await Svn.GetChangedPathsAsync(svn, integrationConfig, targetPath, 4,
+                    new Svn.Credentials("alice", "integration-correct-password", false), expectedUrl: info.Url).ConfigureAwait(false);
+                Equal("Ready", preCopyRevision.Status);
+                Equal(1, preCopyRevision.Paths.Count);
+                Equal("/trunk/nested @ folder/renamed @ note.txt", preCopyRevision.Paths[0].Path);
+                Equal(".", preCopyRevision.Paths[0].RelativePath);
+                Equal("A", preCopyRevision.Paths[0].Action);
+                Equal("/trunk/nested @ folder/target @ note.txt", preCopyRevision.Paths[0].CopyFromPath);
+                Equal(3L, preCopyRevision.Paths[0].CopyFromRevision);
+
+                var gap = await Svn.GetChangedPathsAsync(svn, integrationConfig, targetPath, 2,
+                    new Svn.Credentials("alice", "integration-correct-password", false), expectedUrl: info.Url).ConfigureAwait(false);
+                Equal("Ready", gap.Status);
+                Equal(0, gap.Paths.Count);
+
+                Equal(modifiedContents, await File.ReadAllTextAsync(targetPath).ConfigureAwait(false));
+                Equal(localContents + "uncommitted changed-path edit\n", await File.ReadAllTextAsync(targetPath).ConfigureAwait(false));
+                var statusAfter = await RunCaptureAsync(svn, "status", "--xml", targetPath + "@").ConfigureAwait(false);
+                True(statusAfter.StandardOutput.Contains("item=\"modified\"", StringComparison.Ordinal), "changed-path loading changed the local modification state");
+                Equal(NormalizeXmlAttributes(statusBefore.StandardOutput), NormalizeXmlAttributes(statusAfter.StandardOutput));
+                var changedPathsAuthDirectory = Path.Combine(integrationConfig, "auth");
+                var changedPathsAuthFiles = Directory.Exists(changedPathsAuthDirectory)
+                    ? Directory.GetFiles(changedPathsAuthDirectory, "*", SearchOption.AllDirectories)
+                    : Array.Empty<string>();
+                var authFiles = Directory.Exists(authDirectory)
+                    ? Directory.GetFiles(authDirectory, "*", SearchOption.AllDirectories).Concat(changedPathsAuthFiles).ToArray()
+                    : changedPathsAuthFiles;
+                Equal(0, authFiles.Length);
+            }).ConfigureAwait(false);
+
+            await CheckAsync("authenticated svnserve snapshots read copied text, escaped paths, empty files, and binary bytes without touching local edits", async () =>
+            {
+                var snapshotConfig = Path.Combine(temp.Path, "snapshot client config");
+                Directory.CreateDirectory(snapshotConfig);
+                await File.WriteAllTextAsync(Path.Combine(snapshotConfig, "config"),
+                    "[auth]\npassword-stores =\nstore-passwords = no\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
+                await File.WriteAllTextAsync(Path.Combine(snapshotConfig, "servers"),
+                    "[global]\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
+
+                var workingCopy = Path.Combine(temp.Path, "snapshot working copy");
+                await RunRequiredWithPasswordAsync(svn, "integration-correct-password",
+                    "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", snapshotConfig,
+                    "--username", "alice", "--password-from-stdin", privateUrl + "/trunk", workingCopy).ConfigureAwait(false);
+                var credentials = new Svn.Credentials("alice", "integration-correct-password", false);
+                var targetPath = Path.Combine(workingCopy, "nested @ folder", "renamed @ note.txt");
+                var targetInfo = await Svn.GetWorkingCopyAsync(svn, snapshotConfig, targetPath).ConfigureAwait(false);
+                Equal("Ready", targetInfo.Status);
+                var originalContents = await File.ReadAllBytesAsync(targetPath).ConfigureAwait(false);
+                await File.AppendAllTextAsync(targetPath, "local snapshot preservation edit\n").ConfigureAwait(false);
+                var modifiedContents = await File.ReadAllBytesAsync(targetPath).ConfigureAwait(false);
+                var statusBefore = await RunCaptureAsync(svn, "status", "--xml", targetPath + "@").ConfigureAwait(false);
+                True(statusBefore.StandardOutput.Contains("item=\"modified\"", StringComparison.Ordinal), "snapshot fixture did not create a local modification");
+
+                var modification = await Svn.GetFileDiffAsync(svn, snapshotConfig, targetPath, 3,
+                    "/trunk/nested @ folder/target @ note.txt", credentials, expectedUrl: targetInfo.Url).ConfigureAwait(false);
+                Equal("Ready", modification.Status);
+                Equal(2L, modification.Before.Revision);
+                Equal("/trunk/nested @ folder/target @ note.txt", modification.Before.Path);
+                Equal("initial contents\n", Encoding.UTF8.GetString(modification.Before.Content));
+                Equal(3L, modification.After.Revision);
+                Equal("initial contents\nupdated contents\n", Encoding.UTF8.GetString(modification.After.Content));
+
+                var copied = await Svn.GetFileDiffAsync(svn, snapshotConfig, targetPath, 4,
+                    "/trunk/nested @ folder/renamed @ note.txt", credentials, expectedUrl: targetInfo.Url).ConfigureAwait(false);
+                Equal("Ready", copied.Status);
+                Equal("/trunk/nested @ folder/target @ note.txt", copied.Before.Path);
+                Equal(3L, copied.Before.Revision);
+                Equal("/trunk/nested @ folder/renamed @ note.txt", copied.After.Path);
+                Equal(4L, copied.After.Revision);
+                SequenceEqual(copied.Before.Content, copied.After.Content);
+
+                var escapedRelative = Path.Combine("nested @ folder", s_escapedSnapshotName);
+                var escapedPath = Path.Combine(workingCopy, escapedRelative);
+                var escapedInfo = await Svn.GetWorkingCopyAsync(svn, snapshotConfig, escapedPath).ConfigureAwait(false);
+                Equal("Ready", escapedInfo.Status);
+                var escaped = await Svn.GetFileDiffAsync(svn, snapshotConfig, escapedPath, 3,
+                    "/trunk/nested @ folder/" + s_escapedSnapshotName, credentials, expectedUrl: escapedInfo.Url).ConfigureAwait(false);
+                Equal("Ready", escaped.Status);
+                Equal("before escaped path\n", Encoding.UTF8.GetString(escaped.Before.Content));
+                Equal("before escaped path\nafter escaped path\n", Encoding.UTF8.GetString(escaped.After.Content));
+
+                var emptyPath = Path.Combine(workingCopy, "nested @ folder", "empty @ file.txt");
+                var emptyInfo = await Svn.GetWorkingCopyAsync(svn, snapshotConfig, emptyPath).ConfigureAwait(false);
+                var empty = await Svn.GetFileDiffAsync(svn, snapshotConfig, emptyPath, 1,
+                    "/trunk/nested @ folder/empty @ file.txt", credentials, expectedUrl: emptyInfo.Url).ConfigureAwait(false);
+                Equal("Ready", empty.Status);
+                True(empty.Before == null && empty.After != null, "real SVN empty add confused absent and empty snapshots");
+                Equal(0, empty.After.Content.Length);
+
+                var binaryPath = Path.Combine(workingCopy, "nested @ folder", "binary @ file.bin");
+                var binaryInfo = await Svn.GetWorkingCopyAsync(svn, snapshotConfig, binaryPath).ConfigureAwait(false);
+                var binary = await Svn.GetFileDiffAsync(svn, snapshotConfig, binaryPath, 3,
+                    "/trunk/nested @ folder/binary @ file.bin", credentials, expectedUrl: binaryInfo.Url).ConfigureAwait(false);
+                Equal("Ready", binary.Status);
+                True(binary.Before.IsBinary && binary.After.IsBinary, "real SVN MIME metadata did not mark binary snapshots");
+                SequenceEqual(new byte[] { 0, 255, 1, 2 }, binary.Before.Content);
+                SequenceEqual(new byte[] { 0, 255, 1, 2, 0, 9 }, binary.After.Content);
+
+                SequenceEqual(modifiedContents, await File.ReadAllBytesAsync(targetPath).ConfigureAwait(false));
+                True(!originalContents.SequenceEqual(modifiedContents), "local modification fixture was not different from BASE");
+                var statusAfter = await RunCaptureAsync(svn, "status", "--xml", targetPath + "@").ConfigureAwait(false);
+                True(statusAfter.StandardOutput.Contains("item=\"modified\"", StringComparison.Ordinal), "snapshot loading changed local modified status");
+                Equal(NormalizeXmlAttributes(statusBefore.StandardOutput), NormalizeXmlAttributes(statusAfter.StandardOutput));
+                var authFiles = Directory.Exists(Path.Combine(snapshotConfig, "auth"))
+                    ? Directory.GetFiles(Path.Combine(snapshotConfig, "auth"), "*", SearchOption.AllDirectories)
+                    : Array.Empty<string>();
+                Equal(0, authFiles.Length);
+            }).ConfigureAwait(false);
+
             var probe = await Svn.ProbeAsync(svn, isolatedConfig).ConfigureAwait(false);
             Equal("Ready", probe.Status);
             if (OperatingSystem.IsMacOS())
@@ -971,6 +1540,11 @@ internal static class Program
         var initialPath = Path.Combine(seed, initialRelativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(initialPath)!);
         await File.WriteAllTextAsync(initialPath, "initial contents\n").ConfigureAwait(false);
+        await File.WriteAllBytesAsync(Path.Combine(seed, "nested @ folder", "empty @ file.txt"), Array.Empty<byte>()).ConfigureAwait(false);
+        await File.WriteAllBytesAsync(Path.Combine(seed, "nested @ folder", "binary @ file.bin"), new byte[] { 0, 255, 1, 2 }).ConfigureAwait(false);
+        var escapedName = s_escapedSnapshotName;
+        var escapedPath = Path.Combine(seed, "nested @ folder", escapedName);
+        await File.WriteAllTextAsync(escapedPath, "before escaped path\n").ConfigureAwait(false);
 
         var trunkUrl = repositoryUrl + "/trunk";
         await RunRequiredAsync(svn, "import", "--non-interactive", "--message",
@@ -982,12 +1556,22 @@ internal static class Program
         await RunRequiredAsync(svn, "checkout", "--non-interactive", trunkUrl, staging).ConfigureAwait(false);
         var stagedPath = Path.Combine(staging, initialRelativePath);
         await File.AppendAllTextAsync(stagedPath, "updated contents\n").ConfigureAwait(false);
+        await File.AppendAllTextAsync(Path.Combine(staging, "nested @ folder", escapedName), "after escaped path\n").ConfigureAwait(false);
+        await File.WriteAllBytesAsync(Path.Combine(staging, "nested @ folder", "binary @ file.bin"), new byte[] { 0, 255, 1, 2, 0, 9 }).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "propset", "svn:mime-type", "application/octet-stream",
+            Path.Combine(staging, "nested @ folder", "binary @ file.bin") + "@").ConfigureAwait(false);
         await RunRequiredAsync(svn, "commit", "--non-interactive", "--message",
             "Update target\nSecond line: 保持 Unicode 🌱", staging).ConfigureAwait(false);
 
         var renamedPath = Path.Combine(Path.GetDirectoryName(stagedPath)!, "renamed @ note.txt");
         await RunRequiredAsync(svn, "move", "--non-interactive", stagedPath + "@", renamedPath).ConfigureAwait(false);
         await RunRequiredAsync(svn, "commit", "--non-interactive", "--message", "Rename target to @ path", staging).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "update", "--non-interactive", staging).ConfigureAwait(false);
+
+        var sourceDirectory = Path.Combine(staging, "nested @ folder");
+        var copiedDirectory = Path.Combine(staging, "copied @ scope");
+        await RunRequiredAsync(svn, "copy", "--non-interactive", sourceDirectory + "@", copiedDirectory + "@").ConfigureAwait(false);
+        await RunRequiredAsync(svn, "commit", "--non-interactive", "--message", "Copy directory to historical scope", staging).ConfigureAwait(false);
     }
 
     private static Process StartSvnServe(string executable, string root, int port)

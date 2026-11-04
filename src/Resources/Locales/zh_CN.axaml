@@ -1102,9 +1102,9 @@
   <x:String x:Key="Text.SVN.LoadMore" xml:space="preserve">加载更多</x:String>
   <x:String x:Key="Text.SVN.Loading" xml:space="preserve">正在加载版本…</x:String>
   <x:String x:Key="Text.SVN.Empty" xml:space="preserve">此工作副本没有版本记录。</x:String>
-  <x:String x:Key="Text.SVN.SelectRevision" xml:space="preserve">选择一个版本以查看完整提交信息。</x:String>
+  <x:String x:Key="Text.SVN.SelectRevision" xml:space="preserve">选择一个版本以查看完整提交信息和变更路径。</x:String>
   <x:String x:Key="Text.SVN.Retry" xml:space="preserve">重试</x:String>
-  <x:String x:Key="Text.SVN.Credentials" xml:space="preserve">登录以加载版本历史</x:String>
+  <x:String x:Key="Text.SVN.Credentials" xml:space="preserve">登录此 SVN 仓库</x:String>
   <x:String x:Key="Text.SVN.Username" xml:space="preserve">用户名</x:String>
   <x:String x:Key="Text.SVN.Password" xml:space="preserve">密码</x:String>
   <x:String x:Key="Text.SVN.Remember" xml:space="preserve">记住凭据</x:String>
@@ -1114,6 +1114,34 @@
   <x:String x:Key="Text.SVN.Loaded" xml:space="preserve">已加载 {0} 个版本</x:String>
   <x:String x:Key="Text.SVN.NoMessage" xml:space="preserve">无提交信息</x:String>
   <x:String x:Key="Text.SVN.InvalidWorkingCopy" xml:space="preserve">此文件夹不是有效的 SVN 工作副本。</x:String>
-  <x:String x:Key="Text.SVN.MessageSplitter" xml:space="preserve">调整版本信息窗格大小</x:String>
+  <x:String x:Key="Text.SVN.MessageSplitter" xml:space="preserve">调整版本详情窗格大小</x:String>
   <x:String x:Key="Text.SVN.WorkingCopyChanged" xml:space="preserve">工作副本已更改。请先刷新历史记录。</x:String>
+  <x:String x:Key="Text.SVN.ChangedPaths" xml:space="preserve">此工作副本中的变更路径（{0}）</x:String>
+  <x:String x:Key="Text.SVN.Paths" xml:space="preserve">变更路径</x:String>
+  <x:String x:Key="Text.SVN.Path" xml:space="preserve">路径</x:String>
+  <x:String x:Key="Text.SVN.Action" xml:space="preserve">操作</x:String>
+  <x:String x:Key="Text.SVN.Actions" xml:space="preserve">A：新增 · M：修改 · D：删除 · R：替换</x:String>
+  <x:String x:Key="Text.SVN.CopiedFrom" xml:space="preserve">复制自 </x:String>
+  <x:String x:Key="Text.SVN.PathsLoading" xml:space="preserve">正在加载变更路径…</x:String>
+  <x:String x:Key="Text.SVN.PathsEmpty" xml:space="preserve">此工作副本中没有变更路径。</x:String>
+  <x:String x:Key="Text.SVN.PathsCancelled" xml:space="preserve">已取消加载变更路径。</x:String>
+  <x:String x:Key="Text.SVN.PathsSplitter" xml:space="preserve">调整提交信息和变更路径窗格大小</x:String>
+  <x:String x:Key="Text.SVN.Action.A" xml:space="preserve">新增</x:String>
+  <x:String x:Key="Text.SVN.Action.M" xml:space="preserve">修改</x:String>
+  <x:String x:Key="Text.SVN.Action.D" xml:space="preserve">删除</x:String>
+  <x:String x:Key="Text.SVN.Action.R" xml:space="preserve">替换</x:String>
+  <x:String x:Key="Text.SVN.Changes" xml:space="preserve">变更</x:String>
+  <x:String x:Key="Text.SVN.Diff.SelectFile" xml:space="preserve">选择一个变更文件以查看差异。</x:String>
+  <x:String x:Key="Text.SVN.Diff.Loading" xml:space="preserve">正在加载文件差异…</x:String>
+  <x:String x:Key="Text.SVN.Diff.Cancelled" xml:space="preserve">已取消加载文件差异。</x:String>
+  <x:String x:Key="Text.SVN.Diff.Directory" xml:space="preserve">此路径是目录。请选择文件以查看内容变更。</x:String>
+  <x:String x:Key="Text.SVN.Diff.Binary" xml:space="preserve">二进制文件。变更前：{0}；变更后：{1}。</x:String>
+  <x:String x:Key="Text.SVN.Diff.Empty" xml:space="preserve">空文件。</x:String>
+  <x:String x:Key="Text.SVN.Diff.Unchanged" xml:space="preserve">没有文本内容变更。</x:String>
+  <x:String x:Key="Text.SVN.Diff.TooLarge" xml:space="preserve">此文件超过差异显示的大小限制。</x:String>
+  <x:String x:Key="Text.SVN.Diff.Absent" xml:space="preserve">不存在</x:String>
+  <x:String x:Key="Text.SVN.Diff.Before" xml:space="preserve">变更前：{0}</x:String>
+  <x:String x:Key="Text.SVN.Diff.After" xml:space="preserve">变更后：{0}</x:String>
+  <x:String x:Key="Text.SVN.Diff.Special" xml:space="preserve">此路径包含 SVN 特殊文件，无法显示文本差异。</x:String>
+  <x:String x:Key="Text.SVN.Diff.Splitter" xml:space="preserve">调整变更路径和文件差异窗格大小</x:String>
 </ResourceDictionary>

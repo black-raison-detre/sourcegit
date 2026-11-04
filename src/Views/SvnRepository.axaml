@@ -9,9 +9,9 @@
   <Grid Margin="4,0,4,4" Background="{DynamicResource Brush.Contents}">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
-      <RowDefinition Height="3*" MinHeight="120"/>
+      <RowDefinition Height="3*" MinHeight="100"/>
       <RowDefinition Height="3"/>
-      <RowDefinition Height="2*" MinHeight="100"/>
+      <RowDefinition Height="3*" MinHeight="190"/>
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0">
@@ -20,7 +20,7 @@
                    Foreground="{DynamicResource Brush.FG2}" ToolTip.Tip="{Binding Url}"/>
       </Border>
 
-      <ScrollViewer MaxHeight="230" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+      <ScrollViewer MaxHeight="180" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                     IsVisible="{Binding HasError}">
         <Border Margin="8" Padding="12,8" BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}"
                 Background="{DynamicResource Brush.Window}">
@@ -155,11 +155,185 @@
     <Grid Grid.Row="3" Margin="8" RowDefinitions="Auto,*">
       <TextBlock Grid.Row="0" Margin="4,0,4,8" FontWeight="Bold" Text="{Binding SelectionTitle}"
                  TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SelectionTitle}" IsVisible="{Binding HasSelection}"/>
-      <TextBox Grid.Row="1" Text="{Binding SelectedMessage, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
-               TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="4"
-               Watermark="{DynamicResource Text.SVN.NoMessage}" IsVisible="{Binding HasSelection}"
-               AutomationProperties.Name="{DynamicResource Text.SVN.Message}"
-               ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+      <TabControl Grid.Row="1" IsVisible="{Binding HasSelection}" SelectedIndex="0">
+        <TabItem Header="{DynamicResource Text.SVN.Changes}">
+          <Grid Margin="0,4,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="3*" MinWidth="220"/>
+              <ColumnDefinition Width="3"/>
+              <ColumnDefinition Width="7*" MinWidth="340"/>
+            </Grid.ColumnDefinitions>
+            <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
+              <TextBlock Grid.Row="0" Margin="4,4,4,6" FontWeight="Bold" Text="{Binding PathsTitle}"
+                         TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding PathsTitle}"/>
+              <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="4,0,4,4" IsVisible="{Binding IsLoadingPaths}">
+                <v:LoadingIcon Grid.Column="0" Width="16" Height="16"/>
+                <TextBlock Grid.Column="1" Margin="6,0" Text="{DynamicResource Text.SVN.PathsLoading}"
+                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.FG2}"/>
+                <Button Grid.Column="2" Classes="flat" Height="24" Padding="8,0"
+                        Content="{DynamicResource Text.SVN.Cancel}" Click="OnCancelPaths"/>
+              </Grid>
+
+              <DataGrid Grid.Row="2" ItemsSource="{Binding ChangedPaths}"
+                        SelectedItem="{Binding SelectedChangedPath, Mode=TwoWay}" AutoGenerateColumns="False" IsReadOnly="True"
+                        SelectionMode="Single" CanUserSortColumns="False" CanUserReorderColumns="False" CanUserResizeColumns="True"
+                        HeadersVisibility="Column" GridLinesVisibility="None" ColumnHeaderHeight="24"
+                        Background="Transparent" BorderThickness="0" ScrollViewer.AllowAutoHide="False"
+                        AutomationProperties.Name="{DynamicResource Text.SVN.Paths}">
+                <DataGrid.Styles>
+                  <Style Selector="DataGridColumnHeader">
+                    <Setter Property="MinHeight" Value="24"/>
+                    <Setter Property="Background" Value="{DynamicResource Brush.Contents}"/>
+                  </Style>
+                  <Style Selector="DataGridCell">
+                    <Setter Property="Padding" Value="8,3"/>
+                  </Style>
+                </DataGrid.Styles>
+                <DataGrid.Columns>
+                  <DataGridTemplateColumn Width="40" MinWidth="40">
+                    <DataGridTemplateColumn.Header>
+                      <TextBlock Classes="table_header" Text="" AutomationProperties.Name="{DynamicResource Text.SVN.Action}"
+                                 ToolTip.Tip="{DynamicResource Text.SVN.Actions}"/>
+                    </DataGridTemplateColumn.Header>
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate DataType="svn:SvnChangedPath">
+                        <TextBlock Text="{Binding Action}" VerticalAlignment="Top" FontFamily="{DynamicResource Fonts.Monospace}"
+                                   ToolTip.Tip="{Binding Action, Converter={x:Static c:SvnConverters.ActionText}}"
+                                   AutomationProperties.Name="{Binding Action, Converter={x:Static c:SvnConverters.ActionText}}"/>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+                  <DataGridTemplateColumn Width="*" MinWidth="160">
+                    <DataGridTemplateColumn.Header>
+                      <TextBlock Classes="table_header" Text="{DynamicResource Text.SVN.Path}"/>
+                    </DataGridTemplateColumn.Header>
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate DataType="svn:SvnChangedPath">
+                        <StackPanel Spacing="2">
+                          <TextBlock Text="{Binding RelativePath}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}"/>
+                          <StackPanel IsVisible="{Binding CopyFromPath, Converter={x:Static c:StringConverters.IsNotNullOrWhitespace}}">
+                            <TextBlock Foreground="{DynamicResource Brush.FG2}">
+                              <Run Text="{DynamicResource Text.SVN.CopiedFrom}"/>
+                              <Run Text="{Binding CopyFromRevision, StringFormat='r{0}'}"/>
+                            </TextBlock>
+                            <TextBlock Text="{Binding CopyFromPath}" ToolTip.Tip="{Binding CopyFromPath}" Foreground="{DynamicResource Brush.FG2}" TextWrapping="Wrap"/>
+                          </StackPanel>
+                        </StackPanel>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+                </DataGrid.Columns>
+              </DataGrid>
+
+              <TextBlock Grid.Row="2" Margin="8" TextWrapping="Wrap" Text="{DynamicResource Text.SVN.PathsEmpty}" IsVisible="{Binding IsPathsEmpty}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Brush.FG2}"/>
+              <ScrollViewer Grid.Row="2" IsVisible="{Binding HasPathsError}" VerticalScrollBarVisibility="Auto"
+                            HorizontalScrollBarVisibility="Disabled" Background="{DynamicResource Brush.Contents}">
+                <StackPanel Margin="4" Spacing="4">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="{Binding PathsErrorMessage}" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                    <Button Grid.Column="1" Classes="flat" Height="24" Padding="8,0" IsEnabled="{Binding CanRetryPaths}"
+                            Content="{DynamicResource Text.SVN.Retry}" Click="OnRetryPaths"/>
+                  </Grid>
+                  <Expander Header="{DynamicResource Text.SVN.Connection.Details}"
+                            IsVisible="{Binding PathsErrorDetails, Converter={x:Static c:StringConverters.IsNotNullOrWhitespace}}">
+                    <TextBox Text="{Binding PathsErrorDetails, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                             TextWrapping="Wrap" VerticalContentAlignment="Top"/>
+                  </Expander>
+                </StackPanel>
+              </ScrollViewer>
+            </Grid>
+
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="Transparent" BorderBrush="{DynamicResource Brush.Border0}" Focusable="True"
+                          AutomationProperties.Name="{DynamicResource Text.SVN.Diff.Splitter}"/>
+
+            <Border Grid.Column="2" Margin="6,0,0,0" BorderThickness="1" CornerRadius="4"
+                    BorderBrush="{DynamicResource Brush.Border2}" Background="{DynamicResource Brush.Window}" ClipToBounds="True">
+              <Grid RowDefinitions="Auto,Auto,*">
+                <Border Grid.Row="0" Padding="4,0" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource Brush.Border2}">
+                  <Grid ColumnDefinitions="*,Auto" MinHeight="28">
+                    <TextBlock Grid.Column="0" Margin="4,0" Text="{Binding DiffTitle}" ToolTip.Tip="{Binding DiffTitle}"
+                               TextTrimming="CharacterEllipsis" FontSize="11"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" IsVisible="{Binding IsTextDiff}">
+                      <Button Classes="icon_button" Width="28" Click="OnGotoFirstChange"
+                              ToolTip.Tip="{DynamicResource Text.Diff.First}" AutomationProperties.Name="{DynamicResource Text.Diff.First}">
+                        <Path Width="12" Height="12" Stretch="Uniform" Data="{StaticResource Icons.Top}"/>
+                      </Button>
+                      <Button Classes="icon_button" Width="28" Click="OnGotoPrevChange"
+                              ToolTip.Tip="{DynamicResource Text.Diff.Prev}" AutomationProperties.Name="{DynamicResource Text.Diff.Prev}">
+                        <Path Width="12" Height="12" Stretch="Uniform" Data="{StaticResource Icons.Up}"/>
+                      </Button>
+                      <Button Classes="icon_button" Width="28" Click="OnGotoNextChange"
+                              ToolTip.Tip="{DynamicResource Text.Diff.Next}" AutomationProperties.Name="{DynamicResource Text.Diff.Next}">
+                        <Path Width="12" Height="12" Stretch="Uniform" Data="{StaticResource Icons.Down}"/>
+                      </Button>
+                      <Button Classes="icon_button" Width="28" Click="OnGotoLastChange"
+                              ToolTip.Tip="{DynamicResource Text.Diff.Last}" AutomationProperties.Name="{DynamicResource Text.Diff.Last}">
+                        <Path Width="12" Height="12" Stretch="Uniform" Data="{StaticResource Icons.Bottom}"/>
+                      </Button>
+                      <ToggleButton Classes="line_path" Width="28" Height="18" VerticalAlignment="Center"
+                                    IsChecked="{Binding DiffModeSideBySide, Mode=TwoWay}"
+                                    ToolTip.Tip="{DynamicResource Text.Diff.SideBySide}"
+                                    AutomationProperties.Name="{DynamicResource Text.Diff.SideBySide}">
+                        <Path Width="12" Height="12" Data="{StaticResource Icons.Layout}"/>
+                      </ToggleButton>
+                    </StackPanel>
+                  </Grid>
+                </Border>
+
+                <ScrollViewer Grid.Row="1" MaxHeight="70" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              IsVisible="{Binding DiffBeforeText, Converter={x:Static c:StringConverters.IsNotNullOrWhitespace}}">
+                  <StackPanel Margin="8,4" Spacing="2">
+                    <TextBlock Text="{Binding DiffBeforeText}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}" FontSize="11"/>
+                    <TextBlock Text="{Binding DiffAfterText}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}" FontSize="11"/>
+                  </StackPanel>
+                </ScrollViewer>
+
+                <ContentControl Grid.Row="2" Content="{Binding DiffContent}" IsVisible="{Binding IsTextDiff}">
+                  <ContentControl.DataTemplates>
+                    <DataTemplate DataType="vm:TextDiffContext">
+                      <v:TextDiffView SelectedChunk="{Binding SelectedChunk, Mode=OneWay}"/>
+                    </DataTemplate>
+                  </ContentControl.DataTemplates>
+                </ContentControl>
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              IsVisible="{Binding DiffNotice, Converter={x:Static c:StringConverters.IsNotNullOrWhitespace}}">
+                  <TextBlock Margin="16" Text="{Binding DiffNotice}" TextWrapping="Wrap"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Brush.FG2}"/>
+                </ScrollViewer>
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
+                            VerticalAlignment="Center" IsVisible="{Binding IsLoadingDiff}">
+                  <v:LoadingIcon Width="16" Height="16"/>
+                  <TextBlock Text="{DynamicResource Text.SVN.Diff.Loading}" Foreground="{DynamicResource Brush.FG2}"/>
+                  <Button Classes="flat" Height="24" Padding="8,0" Content="{DynamicResource Text.SVN.Cancel}" Click="OnCancelDiff"/>
+                </StackPanel>
+                <ScrollViewer Grid.Row="2" IsVisible="{Binding HasDiffError}" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled" Background="{DynamicResource Brush.Window}">
+                  <StackPanel Margin="8" Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Grid.Column="0" Text="{Binding DiffErrorMessage}" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                      <Button Grid.Column="1" Classes="flat" Height="24" Padding="8,0" IsEnabled="{Binding CanRetryDiff}"
+                              Content="{DynamicResource Text.SVN.Retry}" Click="OnRetryDiff"/>
+                    </Grid>
+                    <Expander Header="{DynamicResource Text.SVN.Connection.Details}"
+                              IsVisible="{Binding DiffErrorDetails, Converter={x:Static c:StringConverters.IsNotNullOrWhitespace}}">
+                      <TextBox Text="{Binding DiffErrorDetails, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                               TextWrapping="Wrap" VerticalContentAlignment="Top"/>
+                    </Expander>
+                  </StackPanel>
+                </ScrollViewer>
+              </Grid>
+            </Border>
+          </Grid>
+        </TabItem>
+        <TabItem Header="{DynamicResource Text.SVN.Message}">
+          <TextBox Margin="0,4,0,0" Text="{Binding SelectedMessage, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                   TextWrapping="Wrap" VerticalContentAlignment="Top" Padding="4"
+                   Watermark="{DynamicResource Text.SVN.NoMessage}" AutomationProperties.Name="{DynamicResource Text.SVN.Message}"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+        </TabItem>
+      </TabControl>
       <TextBlock Grid.RowSpan="2" Text="{DynamicResource Text.SVN.SelectRevision}" IsVisible="{Binding !HasSelection}"
                  HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Brush.FG2}"/>
     </Grid>

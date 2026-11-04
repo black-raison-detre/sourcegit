@@ -7,17 +7,20 @@ dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj
 ```
 
 The project has no package dependencies. It compiles the production `Svn.cs`,
-`Svn.Connection.cs`, and `Svn.History.cs` files directly and uses its own
-apphost as a fake SVN CLI, so the focused checks do not need Subversion
-installed.
+`Svn.Connection.cs`, `Svn.History.cs`, `Svn.ChangedPaths.cs`, and
+`Svn.FileDiff.cs` files directly and uses its own apphost as a fake SVN CLI, so
+the focused checks do not need Subversion installed.
 
 The fake-client checks cover working-copy root discovery and Git precedence,
 local XML info, safe argument handling for paths with spaces and `@`,
 copy-aware paged history with revision gaps, multiline Unicode messages,
-missing author/date values, malformed/DTD/oversized XML, cancellation and
-child termination, authentication retry, password redaction, transport
-rejection, and auth-cache safeguards. They also verify that a changed working
-copy URL prevents retained credentials from reaching the log command.
+missing author/date values, scoped selected-revision paths and ancestor copies,
+malformed/DTD/oversized XML, cancellation and child termination,
+authentication retry, password redaction, transport rejection, and auth-cache
+safeguards. File-snapshot checks cover change-action endpoints, copy baselines,
+escaped paths, empty versus absent files, binary and special metadata, unknown
+deleted kinds, output limits, and cancellation. They also verify that a changed
+working-copy URL prevents retained credentials from reaching repository queries.
 
 The fake-client checks verify that a blank config override omits `--config-dir`
 and that unremembered credentials use `--no-auth-cache`. Remembering
@@ -45,8 +48,14 @@ temporary repositories and an isolated Subversion config directory, binds
 only to `127.0.0.1`, disables password stores, and removes only the temporary
 directory it created. The client config directory has a Unicode name to catch
 locale-dependent path handling. Its private repository contains an unrelated
-revision between relevant file changes and then renames the file to a path
-with spaces and `@`. The production APIs authenticate to local `svnserve`,
-read both history pages with the full multiline Unicode messages, and preserve
-an existing uncommitted edit and status. No user Subversion cache or
-credentials are read or modified.
+revision between relevant file changes, then renames the file and copies its
+parent directory to a new path with spaces and `@`. The production APIs
+authenticate to local `svnserve`, read both history pages with the full
+multiline Unicode messages, resolve changed paths through the copied scope,
+and load authenticated before/after snapshots for modified, copied, empty, and
+binary files, including names with Unicode, `%`, `@`, and backslash. The checks
+preserve an existing uncommitted edit and status. Snapshots read `svn cat`
+output as bounded bytes and disable keyword expansion; SVN still applies
+`svn:eol-style` translation, so text snapshots with that property reflect the
+client's EOL form rather than the repository's stored line-ending bytes. No
+user Subversion cache or credentials are read or modified.

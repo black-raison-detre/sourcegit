@@ -12,5 +12,7 @@
     <Compile Include="../../src/Native/Svn.cs" Link="Production/Svn.cs" />
     <Compile Include="../../src/Native/Svn.Connection.cs" Link="Production/Svn.Connection.cs" />
     <Compile Include="../../src/Native/Svn.History.cs" Link="Production/Svn.History.cs" />
+    <Compile Include="../../src/Native/Svn.ChangedPaths.cs" Link="Production/Svn.ChangedPaths.cs" />
+    <Compile Include="../../src/Native/Svn.FileDiff.cs" Link="Production/Svn.FileDiff.cs" />
   </ItemGroup>
 </Project>

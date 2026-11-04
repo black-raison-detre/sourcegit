@@ -160,23 +160,10 @@ namespace SourceGit.Native
             if (!string.IsNullOrEmpty(expectedUrl) && !workingCopy.Url.Equals(expectedUrl, StringComparison.Ordinal))
                 return new HistoryResult("WorkingCopyChanged", new List<SvnRevision>(), "The working-copy URL changed. Refresh its history before continuing.");
 
-            if (Uri.TryCreate(workingCopy.Url, UriKind.Absolute, out var uri) &&
-                uri.Scheme.Equals("svn+ssh", StringComparison.OrdinalIgnoreCase))
-                return new HistoryResult("UnsupportedTransport", new List<SvnRevision>(), "svn+ssh history requires explicit SSH key or agent integration, which this history reader cannot safely provide.");
-
-            var hasExplicitConfigDirectory = !string.IsNullOrWhiteSpace(configDirectory);
-            if (!TryResolveConfigDirectory(configDirectory, out var effectiveConfigDirectory))
-                return new HistoryResult("InvalidConfigDirectory", new List<SvnRevision>(), "The Subversion configuration directory must be an absolute directory path and must not be a file.");
-
-            IReadOnlyList<string> sectionsWithPlaintextDisabled = null;
-            if (credentials?.Remember == true)
-            {
-                if (!hasExplicitConfigDirectory)
-                    return new HistoryResult("CredentialStorageUnavailable", new List<SvnRevision>(), "Remembered credentials require an explicit Subversion configuration directory.");
-                if (!TryReadServerSections(effectiveConfigDirectory, out var serverSections))
-                    return new HistoryResult("CredentialStorageUnavailable", new List<SvnRevision>(), "Cannot safely disable plaintext password storage in the Subversion server configuration.");
-                sectionsWithPlaintextDisabled = serverSections;
-            }
+            if (!TryPrepareHistoryAccess(workingCopy.Url, configDirectory, credentials,
+                    out var accessFailureStatus, out var accessFailureDetails,
+                    out var effectiveConfigDirectory, out var sectionsWithPlaintextDisabled))
+                return new HistoryResult(accessFailureStatus, new List<SvnRevision>(), accessFailureDetails);
 
             if (beforeRevision == 0)
                 return new HistoryResult("Ready", new List<SvnRevision>());
@@ -185,32 +172,7 @@ namespace SourceGit.Native
                 ? (beforeRevision.Value - 1).ToString(CultureInfo.InvariantCulture) + ":0"
                 : "HEAD:0";
             var arguments = new List<string> { "log", "--xml", "--non-interactive", "--limit", limit.ToString(CultureInfo.InvariantCulture), "--revision", range };
-            if (!string.IsNullOrWhiteSpace(configDirectory))
-            {
-                arguments.Add("--config-dir");
-                arguments.Add(effectiveConfigDirectory);
-            }
-            if (sectionsWithPlaintextDisabled != null)
-            {
-                arguments.Add("--config-option");
-                arguments.Add(DisablePlaintextPasswords);
-                foreach (var section in sectionsWithPlaintextDisabled)
-                {
-                    arguments.Add("--config-option");
-                    arguments.Add($"servers:{section}:store-plaintext-passwords=no");
-                }
-            }
-            if (credentials == null || !credentials.Remember)
-                arguments.Add("--no-auth-cache");
-            if (credentials != null)
-            {
-                if (!string.IsNullOrEmpty(credentials.Username))
-                {
-                    arguments.Add("--username");
-                    arguments.Add(credentials.Username);
-                }
-                arguments.Add("--password-from-stdin");
-            }
+            AppendHistoryAccessArguments(arguments, configDirectory, effectiveConfigDirectory, credentials, sectionsWithPlaintextDisabled);
             arguments.Add("--");
             // Pin the target to the URL and BASE revision reported by svn info. This follows copy history
             // while keeping explicit credentials bound to the checked working-copy identity.
@@ -234,6 +196,95 @@ namespace SourceGit.Native
             catch (XmlException ex)
             {
                 return new HistoryResult("Failed", new List<SvnRevision>(), Redact($"SVN returned malformed log XML: {ex.Message}", credentials));
+            }
+        }
+
+        private static bool TryPrepareHistoryAccess(
+            string url,
+            string configDirectory,
+            Credentials credentials,
+            out string failureStatus,
+            out string failureDetails,
+            out string effectiveConfigDirectory,
+            out IReadOnlyList<string> sectionsWithPlaintextDisabled)
+        {
+            failureStatus = string.Empty;
+            failureDetails = string.Empty;
+            sectionsWithPlaintextDisabled = null;
+
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                uri.Scheme.Equals("svn+ssh", StringComparison.OrdinalIgnoreCase))
+            {
+                failureStatus = "UnsupportedTransport";
+                failureDetails = "svn+ssh history requires explicit SSH key or agent integration, which this history reader cannot safely provide.";
+                effectiveConfigDirectory = string.Empty;
+                return false;
+            }
+
+            var hasExplicitConfigDirectory = !string.IsNullOrWhiteSpace(configDirectory);
+            if (!TryResolveConfigDirectory(configDirectory, out effectiveConfigDirectory))
+            {
+                failureStatus = "InvalidConfigDirectory";
+                failureDetails = "The Subversion configuration directory must be an absolute directory path and must not be a file.";
+                return false;
+            }
+
+            if (credentials?.Remember == true)
+            {
+                if (!hasExplicitConfigDirectory)
+                {
+                    failureStatus = "CredentialStorageUnavailable";
+                    failureDetails = "Remembered credentials require an explicit Subversion configuration directory.";
+                    return false;
+                }
+
+                if (!TryReadServerSections(effectiveConfigDirectory, out var serverSections))
+                {
+                    failureStatus = "CredentialStorageUnavailable";
+                    failureDetails = "Cannot safely disable plaintext password storage in the Subversion server configuration.";
+                    return false;
+                }
+
+                sectionsWithPlaintextDisabled = serverSections;
+            }
+
+            return true;
+        }
+
+        private static void AppendHistoryAccessArguments(
+            List<string> arguments,
+            string configDirectory,
+            string effectiveConfigDirectory,
+            Credentials credentials,
+            IReadOnlyList<string> sectionsWithPlaintextDisabled)
+        {
+            if (!string.IsNullOrWhiteSpace(configDirectory))
+            {
+                arguments.Add("--config-dir");
+                arguments.Add(effectiveConfigDirectory);
+            }
+
+            if (sectionsWithPlaintextDisabled != null)
+            {
+                arguments.Add("--config-option");
+                arguments.Add(DisablePlaintextPasswords);
+                foreach (var section in sectionsWithPlaintextDisabled)
+                {
+                    arguments.Add("--config-option");
+                    arguments.Add($"servers:{section}:store-plaintext-passwords=no");
+                }
+            }
+
+            if (credentials == null || !credentials.Remember)
+                arguments.Add("--no-auth-cache");
+            if (credentials != null)
+            {
+                if (!string.IsNullOrEmpty(credentials.Username))
+                {
+                    arguments.Add("--username");
+                    arguments.Add(credentials.Username);
+                }
+                arguments.Add("--password-from-stdin");
             }
         }
 

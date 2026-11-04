@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -1548,7 +1548,7 @@ namespace SourceGit.Views
 
             if (change.Property == SelectedChunkProperty)
             {
-                if (SelectedChunk is { } chunk)
+                if (SelectedChunk is { } chunk && DataContext is ViewModels.TextDiffContext { Option.IsLocalChange: true })
                 {
                     var syscmd = OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl";
                     var top = chunk.Y + 4;
