@@ -1144,4 +1144,45 @@
   <x:String x:Key="Text.SVN.Diff.After" xml:space="preserve">变更后：{0}</x:String>
   <x:String x:Key="Text.SVN.Diff.Special" xml:space="preserve">此路径包含 SVN 特殊文件，无法显示文本差异。</x:String>
   <x:String x:Key="Text.SVN.Diff.Splitter" xml:space="preserve">调整变更路径和文件差异窗格大小</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Title" xml:space="preserve">本地变更（{0}）</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Clean" xml:space="preserve">没有本地变更。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Loading" xml:space="preserve">正在加载本地变更…</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Cancelled" xml:space="preserve">已取消加载本地变更。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Failed" xml:space="preserve">无法加载本地变更。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.SelectFile" xml:space="preserve">选择一个本地变更以查看差异。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Properties" xml:space="preserve">属性</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Content" xml:space="preserve">内容</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.PropertiesEmpty" xml:space="preserve">没有属性变更。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.DiffFailed" xml:space="preserve">无法加载本地差异。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Base" xml:space="preserve">BASE</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Local" xml:space="preserve">工作副本</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status" xml:space="preserve">状态</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Splitter" xml:space="preserve">调整本地变更和差异窗格大小</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.NeedsAttention" xml:space="preserve">需要处理</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Normal" xml:space="preserve">未修改</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Modified" xml:space="preserve">已修改</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Added" xml:space="preserve">已添加</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Deleted" xml:space="preserve">已删除</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Replaced" xml:space="preserve">已替换</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Missing" xml:space="preserve">已缺失</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Unversioned" xml:space="preserve">未纳入版本控制</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Conflicted" xml:space="preserve">存在冲突</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Obstructed" xml:space="preserve">路径被阻挡</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Ignored" xml:space="preserve">已忽略</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.External" xml:space="preserve">外部引用</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Incomplete" xml:space="preserve">不完整</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Unknown" xml:space="preserve">未知</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.PropertyModified" xml:space="preserve">属性已修改</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.PropertyConflicted" xml:space="preserve">属性冲突</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.TreeConflict" xml:space="preserve">树冲突</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.Copied" xml:space="preserve">带历史复制</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.MovedFrom" xml:space="preserve">移动自 {0}</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.MovedTo" xml:space="preserve">移动到 {0}</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.Switched" xml:space="preserve">已切换路径</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.Changelist" xml:space="preserve">变更列表：{0}</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.MissingNotice" xml:space="preserve">此路径在磁盘上已缺失，但尚未计划删除。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.ConflictNotice" xml:space="preserve">此路径存在未解决的冲突。内容差异比较当前文件与 BASE 版本。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.UnavailableNotice" xml:space="preserve">无法显示此路径的本地内容差异。请先检查其状态。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.DirectoryNotice" xml:space="preserve">这是一个目录。请选择“属性”以查看其本地属性变更。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.BinaryNotice" xml:space="preserve">二进制文件的内容不同，无法显示文本差异。</x:String>
 </ResourceDictionary>

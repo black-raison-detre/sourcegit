@@ -11,6 +11,68 @@ namespace SourceGit.Views
             InitializeComponent();
         }
 
+        private async void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                await repo.WorkingCopy.RefreshAsync();
+        }
+
+        private async void OnRefreshWorkingCopy(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                await repo.WorkingCopy.RefreshAsync();
+
+            e.Handled = true;
+        }
+
+        private void OnCancelWorkingCopy(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                repo.WorkingCopy.Cancel();
+
+            e.Handled = true;
+        }
+
+        private async void OnRetryWorkingCopyDiff(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                await repo.WorkingCopy.RetryDiffAsync();
+
+            e.Handled = true;
+        }
+
+        private void OnCancelWorkingCopyDiff(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                repo.WorkingCopy.CancelDiff();
+
+            e.Handled = true;
+        }
+
+        private void OnWorkingCopyGotoFirstChange(object sender, RoutedEventArgs e)
+        {
+            WorkingCopyDiffPresenter.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.First);
+            e.Handled = true;
+        }
+
+        private void OnWorkingCopyGotoPrevChange(object sender, RoutedEventArgs e)
+        {
+            WorkingCopyDiffPresenter.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.Prev);
+            e.Handled = true;
+        }
+
+        private void OnWorkingCopyGotoNextChange(object sender, RoutedEventArgs e)
+        {
+            WorkingCopyDiffPresenter.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.Next);
+            e.Handled = true;
+        }
+
+        private void OnWorkingCopyGotoLastChange(object sender, RoutedEventArgs e)
+        {
+            WorkingCopyDiffPresenter.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.Last);
+            e.Handled = true;
+        }
+
         private async void OnRetry(object sender, RoutedEventArgs e)
         {
             if (DataContext is ViewModels.SvnRepository repo)
@@ -69,25 +131,25 @@ namespace SourceGit.Views
 
         private void OnGotoFirstChange(object sender, RoutedEventArgs e)
         {
-            this.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.First);
+            HistoryDiffPresenter.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.First);
             e.Handled = true;
         }
 
         private void OnGotoPrevChange(object sender, RoutedEventArgs e)
         {
-            this.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.Prev);
+            HistoryDiffPresenter.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.Prev);
             e.Handled = true;
         }
 
         private void OnGotoNextChange(object sender, RoutedEventArgs e)
         {
-            this.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.Next);
+            HistoryDiffPresenter.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.Next);
             e.Handled = true;
         }
 
         private void OnGotoLastChange(object sender, RoutedEventArgs e)
         {
-            this.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.Last);
+            HistoryDiffPresenter.FindDescendantOfType<ThemedTextDiffPresenter>()?.GotoChange(ViewModels.BlockNavigationDirection.Last);
             e.Handled = true;
         }
     }

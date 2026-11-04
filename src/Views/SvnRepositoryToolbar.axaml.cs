@@ -13,7 +13,7 @@ namespace SourceGit.Views
         private async void OnRefresh(object sender, RoutedEventArgs e)
         {
             if (DataContext is ViewModels.SvnRepository repo)
-                await repo.RefreshAsync();
+                await repo.RefreshActiveAsync();
 
             e.Handled = true;
         }
@@ -21,7 +21,7 @@ namespace SourceGit.Views
         private void OnCancel(object sender, RoutedEventArgs e)
         {
             if (DataContext is ViewModels.SvnRepository repo)
-                repo.Cancel();
+                repo.CancelActive();
 
             e.Handled = true;
         }

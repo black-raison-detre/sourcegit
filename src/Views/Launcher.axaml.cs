@@ -304,7 +304,7 @@ namespace SourceGit.Views
                 if (vm.ActivePage.Data is ViewModels.SvnRepository svn)
                 {
                     e.Handled = true;
-                    await svn.RefreshAsync();
+                    await svn.RefreshActiveAsync();
                     return;
                 }
                 else if (vm.ActivePage.Data is ViewModels.Repository repo)

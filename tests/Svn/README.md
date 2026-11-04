@@ -7,8 +7,8 @@ dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj
 ```
 
 The project has no package dependencies. It compiles the production `Svn.cs`,
-`Svn.Connection.cs`, `Svn.History.cs`, `Svn.ChangedPaths.cs`, and
-`Svn.FileDiff.cs` files directly and uses its own apphost as a fake SVN CLI, so
+`Svn.Connection.cs`, `Svn.History.cs`, `Svn.ChangedPaths.cs`,
+`Svn.FileDiff.cs`, and `Svn.Status.cs` files directly and uses its own apphost as a fake SVN CLI, so
 the focused checks do not need Subversion installed.
 
 The fake-client checks cover working-copy root discovery and Git precedence,
@@ -21,6 +21,19 @@ safeguards. File-snapshot checks cover change-action endpoints, copy baselines,
 escaped paths, empty versus absent files, binary and special metadata, unknown
 deleted kinds, output limits, and cancellation. They also verify that a changed
 working-copy URL prevents retained credentials from reaching repository queries.
+
+Working-copy checks cover local XML status, property and changelist rows, copied,
+switched, moved, tree-conflict, and file-external flags, filtering unchanged rows,
+and rejecting malformed, DTD, oversized, or cancelled status output. Local diff
+checks verify bounded internal diffs, special-character paths, property-only
+output, copied additions, binary and unversioned content, missing-file BASE
+snapshots, symlink boundary checks, FIFO rejection, cancellation, and that the
+commands do not request remote status or revisions.
+
+Local text diffs use SVN's internal diff engine and bounded UTF-8 patches;
+invalid UTF-8 or NUL-containing patches are reported as binary. Whitespace
+preferences use SVN's `-b` extension, which can still show blank-line-only
+changes.
 
 The fake-client checks verify that a blank config override omits `--config-dir`
 and that unremembered credentials use `--no-auth-cache`. Remembering
@@ -59,3 +72,8 @@ output as bounded bytes and disable keyword expansion; SVN still applies
 `svn:eol-style` translation, so text snapshots with that property reflect the
 client's EOL form rather than the repository's stored line-ending bytes. No
 user Subversion cache or credentials are read or modified.
+
+The working-copy integration checks stop the local `svnserve` before reading
+status or local diffs. They verify an existing local edit, an unversioned file,
+and a missing tracked file without contacting the server or changing working-copy
+contents or status.

@@ -1204,4 +1204,45 @@
   <x:String x:Key="Text.SVN.Diff.After" xml:space="preserve">After: {0}</x:String>
   <x:String x:Key="Text.SVN.Diff.Special" xml:space="preserve">This path contains a special SVN file. A text diff is unavailable.</x:String>
   <x:String x:Key="Text.SVN.Diff.Splitter" xml:space="preserve">Resize changed paths and file diff panes</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Title" xml:space="preserve">Local changes ({0})</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Clean" xml:space="preserve">No local changes.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Loading" xml:space="preserve">Loading local changes…</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Cancelled" xml:space="preserve">Loading local changes canceled.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Failed" xml:space="preserve">Unable to load local changes.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.SelectFile" xml:space="preserve">Select a local change to view its diff.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Properties" xml:space="preserve">Properties</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Content" xml:space="preserve">Content</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.PropertiesEmpty" xml:space="preserve">No property changes.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.DiffFailed" xml:space="preserve">Unable to load the local diff.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Base" xml:space="preserve">BASE</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Local" xml:space="preserve">Working copy</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status" xml:space="preserve">Status</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Splitter" xml:space="preserve">Resize local changes and diff panes</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.NeedsAttention" xml:space="preserve">Needs attention</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Normal" xml:space="preserve">Unchanged</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Modified" xml:space="preserve">Modified</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Added" xml:space="preserve">Added</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Deleted" xml:space="preserve">Deleted</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Replaced" xml:space="preserve">Replaced</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Missing" xml:space="preserve">Missing</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Unversioned" xml:space="preserve">Unversioned</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Conflicted" xml:space="preserve">Conflicted</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Obstructed" xml:space="preserve">Obstructed</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Ignored" xml:space="preserve">Ignored</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.External" xml:space="preserve">External</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Incomplete" xml:space="preserve">Incomplete</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Status.Unknown" xml:space="preserve">Unknown</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.PropertyModified" xml:space="preserve">Properties modified</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.PropertyConflicted" xml:space="preserve">Property conflict</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.TreeConflict" xml:space="preserve">Tree conflict</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.Copied" xml:space="preserve">Copied with history</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.MovedFrom" xml:space="preserve">Moved from {0}</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.MovedTo" xml:space="preserve">Moved to {0}</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.Switched" xml:space="preserve">Switched path</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Details.Changelist" xml:space="preserve">Changelist: {0}</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.MissingNotice" xml:space="preserve">This path is missing from disk. It is not scheduled for deletion.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.ConflictNotice" xml:space="preserve">This path has unresolved conflicts. The content diff compares the current file with BASE.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.UnavailableNotice" xml:space="preserve">A local content diff is unavailable for this path. Review its status before continuing.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.DirectoryNotice" xml:space="preserve">This is a directory. Select Properties to inspect its local property changes.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.BinaryNotice" xml:space="preserve">Binary file contents differ; a text diff is unavailable.</x:String>
 </ResourceDictionary>

@@ -16,13 +16,14 @@
 - [x] Add regression fixtures for revision gaps, copies/renames, Unicode and special-character paths, binary content, and authentication failures.
 - [x] Verify selection, paging, and large-diff behavior without modifying working-copy files.
 
-## Next: working-copy status and local diffs
+- [x] Show working-copy status and read-only local content/property diffs, including unversioned, missing, conflicted, copied, moved, and replaced paths. Keep local inspection available independently of remote history and authentication.
 
-- [ ] Show working-copy status and local diffs, including unversioned, missing, and conflicted files.
+## Next: working-copy actions
+
+- [ ] Add deliberate user actions for add/remove, commit, update, and revert, with appropriate confirmation for discarded edits.
 
 ## Later increments
 
-- [ ] Add deliberate user actions for add/remove, commit, update, and revert, with appropriate confirmation for discarded edits.
 - [ ] Add conflict inspection and resolution workflows.
 - [ ] Add checkout and remote repository browsing as separate entry points from opening an existing working copy.
 - [ ] Support SVN over SSH with explicit key/agent integration.

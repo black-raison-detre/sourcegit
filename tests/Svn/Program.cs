@@ -32,6 +32,7 @@ internal static class Program
     };
     private static readonly string s_escapedSnapshotName = OperatingSystem.IsWindows() ? "raw % @ Unicode🌱.txt" : "raw % @\\Unicode🌱.txt";
     private static int s_passed;
+    private static bool s_workingCopyLinksAvailable;
 
     private static async Task<int> Main(string[] args)
     {
@@ -63,7 +64,7 @@ internal static class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -102,6 +103,97 @@ internal static class Program
                     Console.WriteLine("svn, version 1.14.3 (r123)\n\nThe following authentication credential caches are available:\n\n* Test keyring\n* Test encrypted disk cache\n\n");
                     return 0;
             }
+        }
+
+        if (args[0] == "info" && scenario.StartsWith("wc_status_", StringComparison.Ordinal))
+        {
+            WriteWorkingCopyInfo();
+            return 0;
+        }
+
+        if (args[0] == "status" && scenario.StartsWith("wc_status_", StringComparison.Ordinal))
+        {
+            if (scenario == "wc_status_slow")
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+            if (scenario == "wc_status_malformed")
+            {
+                Console.WriteLine("<status><target></status>");
+                return 0;
+            }
+            if (scenario == "wc_status_dtd")
+            {
+                Console.WriteLine("<!DOCTYPE status [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]><status><target path='x'><entry path='&xxe;'><wc-status item='modified' props='none'/></entry></target></status>");
+                return 0;
+            }
+            if (scenario == "wc_status_large")
+            {
+                Console.Write("<status><target path='x'><!--");
+                await Console.Out.WriteAsync(new string('x', 8 * 1024 * 1024 + 64)).ConfigureAwait(false);
+                Console.WriteLine("--></target></status>");
+                return 0;
+            }
+            if (scenario == "wc_status_bad_revision")
+            {
+                var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+                Console.WriteLine($"<status><target path=\"{System.Security.SecurityElement.Escape(root)}\"><entry path=\"{System.Security.SecurityElement.Escape(Path.Combine(root, "bad.txt"))}\"><wc-status item=\"added\" revision=\"-2\" props=\"none\"/></entry></target></status>");
+                return 0;
+            }
+            if (scenario is "wc_status_missing_binary" or "wc_status_missing_special")
+            {
+                var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+                var name = scenario == "wc_status_missing_binary" ? "missing @ binary.txt" : "missing @ special.txt";
+                Console.WriteLine($"<status><target path=\"{System.Security.SecurityElement.Escape(root)}\"><entry path=\"{System.Security.SecurityElement.Escape(Path.Combine(root, name))}\"><wc-status item=\"missing\" revision=\"10\" props=\"none\"/></entry></target></status>");
+                return 0;
+            }
+
+            WriteWorkingCopyStatus();
+            return 0;
+        }
+
+        if (args[0] == "diff" && scenario.StartsWith("wc_status_", StringComparison.Ordinal))
+        {
+            if (scenario == "wc_status_diff_slow")
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+            if (scenario == "wc_status_patch_large")
+            {
+                var output = Console.OpenStandardOutput();
+                var block = new byte[64 * 1024];
+                for (var i = 0; i < 129; i++)
+                    await output.WriteAsync(block.AsMemory()).ConfigureAwait(false);
+                return 0;
+            }
+            if (args.Contains("--properties-only", StringComparer.Ordinal))
+                Console.Write("Property changes on: modified @ file.txt\n___________________________________________________________________\nAdded: custom:local\n   + value\n");
+            else if (args[^1].Contains("binary-lookalike", StringComparison.Ordinal))
+                Console.Write("Index: binary-lookalike @ file.txt\n===================================================================\n--- binary-lookalike @ file.txt\t(BASE)\n+++ binary-lookalike @ file.txt\t(WORKING)\n@@ -1,3 +1,3 @@\n-Binary files are ordinary source text\n+Cannot display: file marked as a binary type.\n Binary files also appear in this context\n");
+            else if (args[^1].Contains("binary", StringComparison.Ordinal))
+                await Console.OpenStandardOutput().WriteAsync(new byte[] { 0xC3, 0x28 }).ConfigureAwait(false);
+            else
+                Console.Write("Index: modified @ file.txt\n===================================================================\n--- modified @ file.txt\t(BASE)\n+++ modified @ file.txt\t(WORKING)\n@@ -1 +1 @@\n-old\n+local edit\n");
+            return 0;
+        }
+
+        if (args[0] == "proplist" && scenario.StartsWith("wc_status_", StringComparison.Ordinal))
+        {
+            var target = args[^1];
+            if (scenario == "wc_status_missing_binary")
+            {
+                Console.WriteLine("<properties><target path='fixture'><property name='svn:mime-type'>application/octet-stream</property></target></properties>");
+                return 0;
+            }
+            var special = target.Contains("special", StringComparison.Ordinal);
+            Console.WriteLine(special
+                ? "<properties><target path='fixture'><property name='svn:special'>*</property></target></properties>"
+                : "<properties><target path='fixture'/></properties>");
+            return 0;
+        }
+
+        if (args[0] == "cat" && scenario.StartsWith("wc_status_", StringComparison.Ordinal))
+        {
+            if (scenario == "wc_status_cat_slow")
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+            await Console.OpenStandardOutput().WriteAsync(Encoding.UTF8.GetBytes("BASE missing contents\n")).ConfigureAwait(false);
+            return 0;
         }
 
         if (args[0] == "log")
@@ -389,6 +481,52 @@ internal static class Program
             ? "svn+ssh://svn.example.test/repository/path"
             : "svn://fixture/repos/path%20with%20space%20%40";
         Console.WriteLine($"<info><entry kind=\"file\" path=\"fixture\" revision=\"12\"><url>{url}</url><repository><root>svn://fixture</root></repository><wc-info><wcroot-abspath>{System.Security.SecurityElement.Escape(workingCopyRoot)}</wcroot-abspath></wc-info></entry></info>");
+    }
+
+    private static void WriteWorkingCopyStatus()
+    {
+        var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+        string Entry(string relative, string statusAttributes) =>
+            $"<entry path=\"{System.Security.SecurityElement.Escape(Path.Combine(root, relative))}\"><wc-status {statusAttributes}/></entry>";
+
+        var movedFrom = System.Security.SecurityElement.Escape(Path.Combine(root, "old @ file.txt"));
+        var movedTo = System.Security.SecurityElement.Escape(Path.Combine(root, "new @ file.txt"));
+        var escapedRoot = System.Security.SecurityElement.Escape(root);
+        var external = System.Security.SecurityElement.Escape(Path.GetFullPath(Path.Combine(root, "..", "external wc")));
+        var linkEntries = HasWorkingCopyLinkFixtures(root)
+            ? Entry(Path.Combine("escape", "outside.txt"), "item=\"unversioned\" props=\"none\"") +
+                Entry("special @ link", "item=\"unversioned\" props=\"none\"")
+            : string.Empty;
+        Console.WriteLine("<status><target path=\"" + escapedRoot + "\">" +
+            Entry("modified @ file.txt", $"item=\"modified\" revision=\"12\" props=\"modified\" copied=\"false\" switched=\"true\" tree-conflicted=\"true\" moved-from=\"{movedFrom}\" moved-to=\"{movedTo}\"") +
+            Entry("copied @ file.txt", "item=\"added\" revision=\"-1\" props=\"none\" copied=\"true\"") +
+            Entry("unversioned @ file.txt", "item=\"unversioned\" props=\"none\"") +
+            Entry("missing @ file.txt", "item=\"missing\" revision=\"11\" props=\"none\"") +
+            Entry("directory change", "item=\"modified\" revision=\"12\" props=\"none\"") +
+            Entry("unversioned directory", "item=\"unversioned\" props=\"none\"") +
+            Entry("conflicted @ file.txt", "item=\"conflicted\" revision=\"12\" props=\"conflicted\"") +
+            Entry("binary @ file.dat", "item=\"modified\" revision=\"12\" props=\"none\"") +
+            Entry("binary-lookalike @ file.txt", "item=\"modified\" revision=\"12\" props=\"none\"") +
+            Entry("switched.txt", "item=\"normal\" revision=\"12\" props=\"none\" switched=\"true\"") +
+            Entry("deleted @ file.txt", "item=\"deleted\" revision=\"12\" props=\"none\"") +
+            linkEntries +
+            $"<entry path=\"{external}\"><wc-status item=\"external\" props=\"none\" file-external=\"true\"/></entry>" +
+            "</target><changelist name=\"pending work\">" +
+            Entry("changelist @ file.txt", "item=\"modified\" revision=\"12\" props=\"modified\"") +
+            "</changelist></status>");
+    }
+
+    private static bool HasWorkingCopyLinkFixtures(string root)
+    {
+        try
+        {
+            return (File.GetAttributes(Path.Combine(root, "escape")) & FileAttributes.ReparsePoint) != 0 &&
+                (File.GetAttributes(Path.Combine(root, "special @ link")) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private static async Task RunFakeClientChecksAsync()
@@ -1202,6 +1340,261 @@ internal static class Program
             True(!IsProcessRunning(call.ProcessId), "backpressure fixture child process remained alive");
         }).ConfigureAwait(false);
 
+        var statusRoot = CreateWorkingCopyStatusFiles(workingCopyPath, temp.Path);
+        await CheckAsync("working-copy status parses local flags and changelist entries and filters externals/normal rows", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var result = await Svn.GetStatusAsync(executable, config, workingCopyPath).ConfigureAwait(false);
+            Equal("Ready", result.Status);
+            Equal(s_workingCopyLinksAvailable ? 14 : 12, result.Entries.Count);
+
+            var modified = result.Entries.Single(entry => entry.Path == "modified @ file.txt");
+            Equal("modified", modified.Item);
+            Equal("modified", modified.Properties);
+            Equal(12L, modified.Revision);
+            True(modified.IsSwitched && modified.IsTreeConflicted, "status flags were not parsed");
+            Equal("old @ file.txt", modified.MovedFrom);
+            Equal("new @ file.txt", modified.MovedTo);
+            Equal("file", modified.Kind);
+
+            var copied = result.Entries.Single(entry => entry.Path == "copied @ file.txt");
+            True(copied.IsCopied, "copied flag was lost");
+            Equal(null, copied.Revision); // SVN reports -1 for an uncommitted add.
+            Equal("dir", result.Entries.Single(entry => entry.Path == "directory change").Kind);
+            Equal("dir", result.Entries.Single(entry => entry.Path == "unversioned directory").Kind);
+            Equal("pending work", result.Entries.Single(entry => entry.Path == "changelist @ file.txt").Changelist);
+            True(result.Entries.Any(entry => entry.Path == "switched.txt" && entry.IsSwitched), "meaningful normal switched row was filtered");
+            True(!result.Entries.Any(entry => entry.Item == "external" || entry.IsFileExternal), "external status leaked into the working-copy list");
+
+            var statusCall = ReadInvocations(invocations).Single(call => call.Arguments[0] == "status");
+            True(statusCall.Arguments.Contains("--ignore-externals", StringComparer.Ordinal), "status did not ignore externals");
+            True(statusCall.Arguments.Contains("--no-auth-cache", StringComparer.Ordinal), "local status may write an auth cache");
+            True(!statusCall.Arguments.Contains("-u", StringComparer.Ordinal) &&
+                !statusCall.Arguments.Contains("--show-updates", StringComparer.Ordinal) &&
+                !statusCall.Arguments.Contains("--revision", StringComparer.Ordinal), "status requested repository data");
+            Equal(Path.GetFullPath(statusRoot) + "@", statusCall.Arguments[^1]);
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local text and property diffs use bounded internal commands and native copied-add semantics", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var result = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "modified @ file.txt").ConfigureAwait(false);
+            Equal("Ready", result.Status);
+            True(Encoding.UTF8.GetString(result.Patch).Contains("+local edit", StringComparison.Ordinal), "local patch was not returned");
+            True(result.PropertyDiff.Contains("custom:local", StringComparison.Ordinal), "property patch was not returned");
+            True(result.Details.Contains("conflict", StringComparison.OrdinalIgnoreCase), "tree conflict warning was omitted");
+
+            var calls = ReadInvocations(invocations);
+            var statusCall = calls.Single(call => call.Arguments[0] == "status");
+            True(statusCall.Arguments.Contains("--ignore-externals", StringComparer.Ordinal), "status must ignore externals");
+            var textDiff = calls.Last(call => call.Arguments[0] == "diff" && !call.Arguments.Contains("--properties-only", StringComparer.Ordinal));
+            True(textDiff.Arguments.Contains("--internal-diff", StringComparer.Ordinal), "configured external diff command could run");
+            True(textDiff.Arguments.Contains("--ignore-properties", StringComparer.Ordinal), "text and property diffs were not separated");
+            True(textDiff.Arguments.Contains("--show-copies-as-adds", StringComparer.Ordinal), "copy additions were not requested");
+            True(textDiff.Arguments.Contains("--extensions", StringComparer.Ordinal), "native diff preferences were not passed");
+            Equal("-U 3", ArgumentAfter(textDiff, "--extensions"));
+            True(!textDiff.Arguments.Contains("--ignore-externals", StringComparer.Ordinal) &&
+                !textDiff.Arguments.Contains("--revision", StringComparer.Ordinal), "local diff requested unsupported external or revision options");
+            Equal(Path.Combine(statusRoot, "modified @ file.txt"), textDiff.Arguments[^1]);
+
+            var propertyCalls = PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var propertyOnly = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "modified @ file.txt",
+                propertiesOnly: true).ConfigureAwait(false);
+            Equal("Ready", propertyOnly.Status);
+            True(!string.IsNullOrEmpty(propertyOnly.PropertyDiff), "properties-only output was empty");
+            True(propertyOnly.Patch == null, "properties-only mode returned a text patch");
+            var propertyDiff = ReadInvocations(propertyCalls).Single(call => call.Arguments[0] == "diff");
+            True(propertyDiff.Arguments.Contains("--properties-only", StringComparer.Ordinal), "properties-only option was not selected");
+            True(!propertyDiff.Arguments.Contains("--ignore-properties", StringComparer.Ordinal), "properties-only diff discarded properties");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local diff handles copied, missing, unversioned, binary, directory, special, and scheduled-delete states", async () =>
+        {
+            var copiedCalls = PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var copied = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "copied @ file.txt").ConfigureAwait(false);
+            Equal("Ready", copied.Status);
+            Equal("absent", copied.BeforeLabel);
+            True(ReadInvocations(copiedCalls).Any(call => call.Arguments[0] == "diff" && call.Arguments.Contains("--show-copies-as-adds", StringComparer.Ordinal)),
+                "copied add did not use native show-copies-as-adds");
+
+            PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var missing = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "missing @ file.txt").ConfigureAwait(false);
+            Equal("Ready", missing.Status);
+            True(missing.IsMissing, "missing status was not explicit");
+            Equal("BASE", missing.BeforeLabel);
+            Equal("absent", missing.AfterLabel);
+            Equal("BASE missing contents\n", Encoding.UTF8.GetString(missing.MissingBaseContent));
+
+            PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var unversioned = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "unversioned @ file.txt").ConfigureAwait(false);
+            True(unversioned.Status == "Ready", $"unversioned content returned {unversioned.Status}: {unversioned.Details}");
+            Equal("absent", unversioned.BeforeLabel);
+            Equal("new local text\n", Encoding.UTF8.GetString(unversioned.UnversionedContent));
+
+            PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var directory = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "unversioned directory").ConfigureAwait(false);
+            Equal("Directory", directory.Status);
+            True(directory.IsDirectory, "unversioned directory was not identified");
+
+            if (s_workingCopyLinksAvailable)
+            {
+                PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+                var symbolicLink = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "special @ link").ConfigureAwait(false);
+                Equal("Special", symbolicLink.Status);
+                True(symbolicLink.IsSpecial, "symlink was not shown as special");
+                Equal("must not be read\n", await File.ReadAllTextAsync(Path.Combine(temp.Path, "outside wc data", "outside.txt")).ConfigureAwait(false));
+            }
+
+            var binaryCalls = PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var binary = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "binary @ file.dat").ConfigureAwait(false);
+            Equal("Ready", binary.Status);
+            True(binary.IsBinary, "invalid UTF-8 patch was not classified as binary");
+            Equal(null, binary.Patch);
+            True(ReadInvocations(binaryCalls).Any(call => call.Arguments[0] == "diff"), "binary detection did not exercise the native patch path");
+
+            PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var binaryLookalike = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "binary-lookalike @ file.txt").ConfigureAwait(false);
+            Equal("Ready", binaryLookalike.Status);
+            True(!binaryLookalike.IsBinary, "ordinary added/deleted/context lines were mistaken for binary diagnostics");
+            var lookalikePatch = Encoding.UTF8.GetString(binaryLookalike.Patch);
+            True(lookalikePatch.Contains("-Binary files are ordinary source text", StringComparison.Ordinal), "deleted text line was not retained");
+            True(lookalikePatch.Contains("+Cannot display: file marked as a binary type.", StringComparison.Ordinal), "added text line was not retained");
+            True(lookalikePatch.Contains(" Binary files also appear in this context", StringComparison.Ordinal), "context text line was not retained");
+
+            PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var deleted = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "deleted @ file.txt").ConfigureAwait(false);
+            Equal("Ready", deleted.Status);
+            True(!deleted.IsMissing, "scheduled deletion was confused with an unscheduled missing file");
+            Equal("absent", deleted.AfterLabel);
+            True(deleted.Patch?.Length > 0, "scheduled deletion did not return native diff output");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local path validation rejects traversal and symlinked ancestors without launching diff", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var traversal = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "../outside.txt").ConfigureAwait(false);
+            Equal("PathNotChanged", traversal.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "diff"), "path traversal launched svn diff");
+
+            if (s_workingCopyLinksAvailable)
+            {
+                invocations = PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+                var escape = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, Path.Combine("escape", "outside.txt")).ConfigureAwait(false);
+                Equal("PathOutsideWorkingCopy", escape.Status);
+                True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "diff"), "symlinked ancestor launched svn diff");
+                Equal("must not be read\n", await File.ReadAllTextAsync(Path.Combine(temp.Path, "outside wc data", "outside.txt")).ConfigureAwait(false));
+            }
+        }).ConfigureAwait(false);
+
+        var mkfifo = OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() ? FindExecutable("mkfifo") : string.Empty;
+        if (!string.IsNullOrEmpty(mkfifo))
+        {
+            await CheckAsync("Unix FIFO status paths are rejected without blocking", async () =>
+            {
+                var fifoPath = Path.Combine(statusRoot, "unversioned @ file.txt");
+                var backupPath = fifoPath + ".regular-backup";
+                File.Move(fifoPath, backupPath);
+                try
+                {
+                    await RunRequiredAsync(mkfifo, fifoPath).ConfigureAwait(false);
+                    PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+                    var diffTask = Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "unversioned @ file.txt");
+                    var timer = Stopwatch.StartNew();
+                    var result = await diffTask.WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                    True(result.Status is "Failed" or "Unsupported", $"FIFO returned unexpected status '{result.Status}'");
+                    True(timer.Elapsed < TimeSpan.FromSeconds(3), $"FIFO status took too long: {timer.Elapsed}");
+                }
+                finally
+                {
+                    if (File.Exists(fifoPath))
+                        File.Delete(fifoPath);
+                    File.Move(backupPath, fifoPath);
+                }
+            }).ConfigureAwait(false);
+        }
+        else
+            Console.WriteLine("SKIP Unix FIFO check: mkfifo is unavailable on this platform.");
+
+        await CheckAsync("missing BASE metadata preserves binary MIME and special-file states", async () =>
+        {
+            PrepareHistoryScenario(temp.Path, "wc_status_missing_binary", workingCopyPath);
+            var binary = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "missing @ binary.txt").ConfigureAwait(false);
+            Equal("Ready", binary.Status);
+            True(binary.IsMissing && binary.IsBinary, "ASCII BASE bytes with binary MIME were treated as text");
+
+            var calls = PrepareHistoryScenario(temp.Path, "wc_status_missing_special", workingCopyPath);
+            var special = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "missing @ special.txt").ConfigureAwait(false);
+            Equal("Special", special.Status);
+            True(special.IsMissing && special.IsSpecial, "BASE svn:special was not surfaced");
+            True(!ReadInvocations(calls).Any(call => call.Arguments[0] == "cat"), "BASE content for a special path was read as text");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("working-copy status rejects bad revisions, malformed/DTD XML, oversize output, and cancellation", async () =>
+        {
+            foreach (var (scenario, expected) in new[]
+            {
+                ("wc_status_bad_revision", "Failed"),
+                ("wc_status_malformed", "Failed"),
+                ("wc_status_dtd", "Failed"),
+                ("wc_status_large", "TooLarge"),
+            })
+            {
+                PrepareHistoryScenario(temp.Path, scenario, workingCopyPath);
+                var result = await Svn.GetStatusAsync(executable, config, workingCopyPath).ConfigureAwait(false);
+                Equal(expected, result.Status);
+            }
+
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_status_slow", workingCopyPath);
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+            var cancelled = false;
+            try
+            {
+                await Svn.GetStatusAsync(executable, config, workingCopyPath, cancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = true;
+            }
+            True(cancelled, "status cancellation was converted to a normal result");
+            var processCall = ReadInvocations(invocations).Last(call => call.Arguments[0] == "status");
+            var waitUntil = Stopwatch.StartNew();
+            while (IsProcessRunning(processCall.ProcessId) && waitUntil.Elapsed < TimeSpan.FromSeconds(2))
+                await Task.Delay(20).ConfigureAwait(false);
+            True(!IsProcessRunning(processCall.ProcessId), "cancelled status child remained alive");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local diff cancellation and output/content limits are bounded", async () =>
+        {
+            var patchCalls = PrepareHistoryScenario(temp.Path, "wc_status_patch_large", workingCopyPath);
+            var tooLargePatch = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "binary @ file.dat").ConfigureAwait(false);
+            Equal("TooLarge", tooLargePatch.Status);
+            True(ReadInvocations(patchCalls).Any(call => call.Arguments[0] == "diff"), "large patch fixture did not launch diff");
+
+            var hugePath = Path.Combine(statusRoot, "unversioned @ file.txt");
+            await File.WriteAllBytesAsync(hugePath, new byte[8 * 1024 * 1024 + 1]).ConfigureAwait(false);
+            PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
+            var tooLargeFile = await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "unversioned @ file.txt").ConfigureAwait(false);
+            Equal("TooLarge", tooLargeFile.Status);
+
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_status_diff_slow", workingCopyPath);
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(800));
+            var cancelled = false;
+            try
+            {
+                await Svn.GetLocalDiffAsync(executable, config, workingCopyPath, "modified @ file.txt", cancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = true;
+            }
+            True(cancelled, "local diff cancellation was converted to a normal result");
+            var processCall = ReadInvocations(invocations).Last(call => call.Arguments[0] == "diff");
+            var waitUntil = Stopwatch.StartNew();
+            while (IsProcessRunning(processCall.ProcessId) && waitUntil.Elapsed < TimeSpan.FromSeconds(2))
+                await Task.Delay(20).ConfigureAwait(false);
+            True(!IsProcessRunning(processCall.ProcessId), "cancelled local diff child remained alive");
+        }).ConfigureAwait(false);
+
         await CheckAsync("invalid configuration paths are rejected before launching SVN", async () =>
         {
             var invocations = PrepareScenario(temp.Path, "ready");
@@ -1426,7 +1819,7 @@ internal static class Program
                 await File.WriteAllTextAsync(Path.Combine(snapshotConfig, "servers"),
                     "[global]\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
 
-                var workingCopy = Path.Combine(temp.Path, "snapshot working copy");
+                var workingCopy = Path.Combine(temp.Path, "snapshot @ working copy");
                 await RunRequiredWithPasswordAsync(svn, "integration-correct-password",
                     "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", snapshotConfig,
                     "--username", "alice", "--password-from-stdin", privateUrl + "/trunk", workingCopy).ConfigureAwait(false);
@@ -1494,6 +1887,44 @@ internal static class Program
                     ? Directory.GetFiles(Path.Combine(snapshotConfig, "auth"), "*", SearchOption.AllDirectories)
                     : Array.Empty<string>();
                 Equal(0, authFiles.Length);
+
+                if (!server.HasExited)
+                    server.Kill(true);
+                await server.WaitForExitAsync().ConfigureAwait(false);
+                True(server.HasExited, "local svnserve remained active for the offline working-copy checks");
+
+                var unversionedPath = Path.Combine(workingCopy, "offline @ unversioned.txt");
+                await File.WriteAllTextAsync(unversionedPath, "offline local content\n").ConfigureAwait(false);
+                var missingPath = Path.Combine(workingCopy, "nested @ folder", "empty @ file.txt");
+                File.Delete(missingPath);
+                var statusBeforeOffline = await RunCaptureAsync(svn, "status", "--xml", "--ignore-externals", "--non-interactive", "--no-auth-cache", "--", workingCopy + "@").ConfigureAwait(false);
+                var modifiedBeforeOffline = await File.ReadAllBytesAsync(targetPath).ConfigureAwait(false);
+
+                var offlineStatus = await Svn.GetStatusAsync(svn, snapshotConfig, workingCopy).ConfigureAwait(false);
+                Equal("Ready", offlineStatus.Status);
+                True(offlineStatus.Entries.Any(entry => entry.Item == "modified" && entry.Path.EndsWith(Path.Combine("nested @ folder", "renamed @ note.txt"), StringComparison.Ordinal)),
+                    "offline status did not show the existing local edit");
+                True(offlineStatus.Entries.Any(entry => entry.Item == "unversioned" && entry.Path == "offline @ unversioned.txt"),
+                    "offline status did not show the unversioned file");
+                True(offlineStatus.Entries.Any(entry => entry.Item == "missing" && entry.Path.EndsWith(Path.Combine("nested @ folder", "empty @ file.txt"), StringComparison.Ordinal)),
+                    "offline status did not show the missing tracked file");
+
+                var localDiff = await Svn.GetLocalDiffAsync(svn, snapshotConfig, workingCopy, Path.Combine("nested @ folder", "renamed @ note.txt")).ConfigureAwait(false);
+                True(localDiff.Status == "Ready", $"offline local diff returned {localDiff.Status}: {localDiff.Details}");
+                True(Encoding.UTF8.GetString(localDiff.Patch).Contains("local snapshot preservation edit", StringComparison.Ordinal),
+                    "offline local diff omitted the existing edit");
+                var unversionedDiff = await Svn.GetLocalDiffAsync(svn, snapshotConfig, workingCopy, "offline @ unversioned.txt").ConfigureAwait(false);
+                Equal("offline local content\n", Encoding.UTF8.GetString(unversionedDiff.UnversionedContent));
+                var missingDiff = await Svn.GetLocalDiffAsync(svn, snapshotConfig, workingCopy,
+                    Path.Combine("nested @ folder", "empty @ file.txt")).ConfigureAwait(false);
+                Equal("Ready", missingDiff.Status);
+                True(missingDiff.IsMissing, "offline missing diff lost its missing state");
+                Equal(0, missingDiff.MissingBaseContent.Length);
+
+                SequenceEqual(modifiedBeforeOffline, await File.ReadAllBytesAsync(targetPath).ConfigureAwait(false));
+                True(!File.Exists(missingPath), "local diff recreated the missing tracked file");
+                var statusAfterOffline = await RunCaptureAsync(svn, "status", "--xml", "--ignore-externals", "--non-interactive", "--no-auth-cache", "--", workingCopy + "@").ConfigureAwait(false);
+                Equal(NormalizeXmlAttributes(statusBeforeOffline.StandardOutput), NormalizeXmlAttributes(statusAfterOffline.StandardOutput));
             }).ConfigureAwait(false);
 
             var probe = await Svn.ProbeAsync(svn, isolatedConfig).ConfigureAwait(false);
@@ -1743,6 +2174,42 @@ internal static class Program
         var path = Path.Combine(nested, "target @ file.txt");
         File.WriteAllText(path, "local working copy contents\n");
         return path;
+    }
+
+    private static string CreateWorkingCopyStatusFiles(string workingCopyPath, string tempDirectory)
+    {
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(workingCopyPath))!;
+        File.WriteAllText(Path.Combine(root, "modified @ file.txt"), "local text\n");
+        File.WriteAllText(Path.Combine(root, "copied @ file.txt"), "copied text\n");
+        File.WriteAllText(Path.Combine(root, "unversioned @ file.txt"), "new local text\n");
+        File.WriteAllText(Path.Combine(root, "conflicted @ file.txt"), "conflict markers\n");
+        File.WriteAllBytes(Path.Combine(root, "binary @ file.dat"), new byte[] { 0, 1, 2 });
+        File.WriteAllText(Path.Combine(root, "binary-lookalike @ file.txt"), "lookalike source text\n");
+        File.WriteAllText(Path.Combine(root, "switched.txt"), "switched local text\n");
+        File.WriteAllText(Path.Combine(root, "changelist @ file.txt"), "changelist text\n");
+        Directory.CreateDirectory(Path.Combine(root, "directory change"));
+        Directory.CreateDirectory(Path.Combine(root, "unversioned directory"));
+
+        var externalRoot = Path.Combine(tempDirectory, "outside wc data");
+        Directory.CreateDirectory(externalRoot);
+        File.WriteAllText(Path.Combine(externalRoot, "outside.txt"), "must not be read\n");
+        var directoryLink = Path.Combine(root, "escape");
+        var fileLink = Path.Combine(root, "special @ link");
+        try
+        {
+            Directory.CreateSymbolicLink(directoryLink, externalRoot);
+            File.CreateSymbolicLink(fileLink, Path.Combine(externalRoot, "outside.txt"));
+            s_workingCopyLinksAvailable = true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            s_workingCopyLinksAvailable = false;
+            if (Directory.Exists(directoryLink))
+                Directory.Delete(directoryLink);
+            if (File.Exists(fileLink))
+                File.Delete(fileLink);
+        }
+        return root;
     }
 
     private static string ArgumentAfter(Invocation invocation, string argument)

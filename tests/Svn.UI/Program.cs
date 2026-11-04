@@ -31,7 +31,7 @@ internal static class Program
 
     private static async Task<int> Main(string[] args)
     {
-        if (args.Length > 0 && args[0] is "info" or "log" or "proplist" or "cat")
+        if (args.Length > 0 && args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "propget")
             return await RunFakeSvn(args);
 
         var temporary = Path.Combine(Path.GetTempPath(), "sourcegit-svn-ui-" + Guid.NewGuid().ToString("N"));
@@ -44,6 +44,10 @@ internal static class Program
             var workingCopy = Path.Combine(temporary, "工作 copy@fixture ");
             var config = Path.Combine(temporary, "svn-config");
             Directory.CreateDirectory(config);
+            var localWorkingCopy = await CreateLocalWorkingCopyFixture(temporary, config);
+            if (args.Contains("--local-only", StringComparer.Ordinal))
+                return await RunLocalOnly(temporary, config, localWorkingCopy);
+
             await Run("svnadmin", "create", repository);
             var url = new Uri(repository + Path.DirectorySeparatorChar).AbsoluteUri.TrimEnd('/');
             await Run("svn", "checkout", "--config-dir", config, url, workingCopy);
@@ -107,7 +111,10 @@ internal static class Program
                     var grid = grids.Single(candidate => ReferenceEquals(candidate.ItemsSource, vm.Revisions));
                     var pathsGrid = grids.Single(candidate => ReferenceEquals(candidate.ItemsSource, vm.ChangedPaths));
                     var contentTabs = window.GetVisualDescendants().OfType<TabControl>()
-                        .Single(control => ReferenceEquals(control.DataContext, vm) && control.Items.Count == 2);
+                        .Single(control => control.Name == "HistoryDetailsTabs");
+                    var repositoryTabs = window.GetVisualDescendants().OfType<TabControl>()
+                        .Single(control => control.Name == "RepositoryTabs");
+                    Check(repositoryTabs.SelectedIndex == 0 && vm.SelectedTabIndex == 0, "repository opens on the history tab");
                     Check(ReferenceEquals(grid.SelectedItem, selection), "actual history view bindings");
                     Check(ReferenceEquals(pathsGrid.ItemsSource, vm.ChangedPaths) && pathsGrid.GetVisualDescendants().OfType<DataGridRow>().Any(), "actual changed paths view bindings and rows");
                     grid.Focus();
@@ -280,6 +287,76 @@ internal static class Program
                         window.Content = new SourceGit.Views.LauncherPage { DataContext = new LauncherPage(node, authenticated) };
                         await authenticated.RefreshAsync();
                         Check(authenticated.NeedsCredentials && authenticated.HasError, "VM requests credentials");
+                        await WaitForWorkingCopy(authenticated.WorkingCopy);
+                        File.WriteAllText(Path.Combine(workingCopy, "offline-a.txt"), "offline baseline A\n");
+                        File.WriteAllText(Path.Combine(workingCopy, "offline-b.txt"), "offline baseline B\n");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_STATUS_ENTRIES", "1");
+                        var authenticatedRepositoryTabs = window.GetVisualDescendants().OfType<TabControl>().Single(control => control.Name == "RepositoryTabs");
+                        authenticatedRepositoryTabs.SelectedIndex = 1;
+                        Dispatcher.UIThread.RunJobs();
+                        Check(authenticated.SelectedTabIndex == 1, "authenticated fixture selects its local working-copy tab");
+                        await authenticated.WorkingCopy.RefreshAsync();
+                        await WaitForWorkingCopy(authenticated.WorkingCopy);
+                        Check(authenticated.NeedsCredentials && authenticated.HasError && !authenticated.WorkingCopy.HasError &&
+                            authenticated.WorkingCopy.Entries.Count == 2, "offline local status remains available while SVN history requests credentials");
+
+                        Dispatcher.UIThread.RunJobs();
+                        var toolbar = window.GetVisualDescendants().OfType<SourceGit.Views.SvnRepositoryToolbar>().Single();
+                        var toolbarTitle = toolbar.GetVisualDescendants().OfType<TextBlock>().Single(block => block.Text == authenticated.ActiveTitle);
+                        var toolbarRefresh = toolbar.GetVisualDescendants().OfType<Button>()
+                            .Single(button => button.Content?.ToString() == App.Text("SVN.Refresh"));
+                        Check(toolbarTitle.Text == App.Text("SVN.WorkingCopy") && authenticated.CanRefreshActive && toolbarRefresh.IsEnabled,
+                            "working-copy toolbar title and refresh stay active while history needs credentials");
+                        var fakeWorkingCopyGrid = window.GetVisualDescendants().OfType<DataGrid>().Single(control => control.Name == "WorkingCopyEntries");
+                        var offlineA = FindWorkingCopyEntry(authenticated.WorkingCopy, "offline-a.txt");
+                        var offlineB = FindWorkingCopyEntry(authenticated.WorkingCopy, "offline-b.txt");
+                        await SelectWorkingCopyEntry(authenticated.WorkingCopy, fakeWorkingCopyGrid, offlineA);
+                        var historySelectionBeforeToolbarRefresh = authenticated.SelectedRevision;
+                        var historyCallsBeforeToolbarRefresh = CountHistoryCalls(fakeCalls);
+                        var statusCallsBeforeToolbarRefresh = CountStatusCalls(fakeCalls);
+                        toolbarRefresh.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                        await WaitForWorkingCopy(authenticated.WorkingCopy);
+                        await WaitForLocalDiff(authenticated.WorkingCopy);
+                        Check(CountHistoryCalls(fakeCalls) == historyCallsBeforeToolbarRefresh && authenticated.NeedsCredentials && authenticated.HasError &&
+                            ReferenceEquals(authenticated.SelectedRevision, historySelectionBeforeToolbarRefresh),
+                            "toolbar refresh leaves the history authentication error and selection untouched");
+                        Check(CountStatusCalls(fakeCalls) > statusCallsBeforeToolbarRefresh &&
+                            authenticated.WorkingCopy.SelectedEntry?.Path == offlineA.Path && authenticated.WorkingCopy.IsTextDiff,
+                            "toolbar click reloads local status and preserves its selected diff");
+                        offlineA = FindWorkingCopyEntry(authenticated.WorkingCopy, "offline-a.txt");
+                        offlineB = FindWorkingCopyEntry(authenticated.WorkingCopy, "offline-b.txt");
+                        await SelectWorkingCopyEntry(authenticated.WorkingCopy, fakeWorkingCopyGrid, offlineB);
+
+                        var cancelledLocalDiffStarted = Path.Combine(temporary, "cancelled-local-diff-started");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_PATH", "offline-a.txt");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_STARTED", cancelledLocalDiffStarted);
+                        await SelectWorkingCopyEntry(authenticated.WorkingCopy, fakeWorkingCopyGrid, offlineA, false);
+                        await WaitUntil(() => File.Exists(cancelledLocalDiffStarted));
+                        authenticated.WorkingCopy.CancelDiff();
+                        await WaitForLocalDiff(authenticated.WorkingCopy);
+                        Check(authenticated.WorkingCopy.HasDiffError && authenticated.WorkingCopy.CanRetryDiff &&
+                            ReferenceEquals(authenticated.WorkingCopy.SelectedEntry, offlineA), "cancelled local diff is retryable for the same row");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_PATH", null);
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_STARTED", null);
+                        await authenticated.WorkingCopy.RetryDiffAsync();
+                        await WaitForLocalDiff(authenticated.WorkingCopy);
+                        Check(!authenticated.WorkingCopy.HasDiffError && authenticated.WorkingCopy.IsTextDiff &&
+                            authenticated.WorkingCopy.DiffContent.Data.Lines.Any(line => line.Content.Contains("offline baseline A", StringComparison.Ordinal)),
+                            "retry loads the same selected local file diff");
+
+                        await SelectWorkingCopyEntry(authenticated.WorkingCopy, fakeWorkingCopyGrid, offlineB);
+                        var staleLocalDiffStarted = Path.Combine(temporary, "stale-local-diff-started");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_PATH", "offline-a.txt");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_STARTED", staleLocalDiffStarted);
+                        await SelectWorkingCopyEntry(authenticated.WorkingCopy, fakeWorkingCopyGrid, offlineA, false);
+                        await WaitUntil(() => File.Exists(staleLocalDiffStarted));
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_PATH", null);
+                        await SelectWorkingCopyEntry(authenticated.WorkingCopy, fakeWorkingCopyGrid, offlineB);
+                        Check(ReferenceEquals(authenticated.WorkingCopy.SelectedEntry, offlineB) && authenticated.WorkingCopy.IsTextDiff &&
+                            authenticated.WorkingCopy.DiffContent.Data.Lines.Any(line => line.Content.Contains("offline baseline B", StringComparison.Ordinal)),
+                            "stale local diff cannot replace the newer file selection");
+                        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_STARTED", null);
+                        authenticatedRepositoryTabs.SelectedIndex = 0;
                         Dispatcher.UIThread.RunJobs();
                         using (var frame = window.CaptureRenderedFrame())
                             frame.Save(Path.Combine(screenshotDirectory, "history-authentication.png"));
@@ -464,6 +541,9 @@ internal static class Program
                     Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_ROOT", null);
                     Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_URL", null);
                     Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_STATUS_ENTRIES", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_PATH", null);
+                    Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_STARTED", null);
                     Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_REVISION", null);
                     Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_PATH_DELAY_STARTED", null);
                     Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_DIFF_DELAY_REVISION", null);
@@ -492,6 +572,7 @@ internal static class Program
                     restored.OpenRepositoryInTab(convertedNode, null);
                     Check(restored.ActivePage.Data is SvnRepository && convertedNode.IsSvn, "saved node returns to SVN after Git marker removal");
                     restored.CloseTab(restored.ActivePage);
+                    await VerifyLocalWorkingCopyUi(window, localWorkingCopy, screenshotDirectory);
                     window.Close();
                     Console.WriteLine("Screenshots: " + screenshotDirectory);
                     return true;
@@ -518,6 +599,292 @@ internal static class Program
         {
             Directory.Delete(temporary, true);
         }
+    }
+
+    private static async Task<int> RunLocalOnly(string temporary, string config, string workingCopy)
+    {
+        var session = HeadlessUnitTestSession.StartNew(typeof(Program));
+        using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        try
+        {
+            var screenshotDirectory = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_ARTIFACTS") ??
+                Path.Combine(Path.GetTempPath(), "sourcegit-svn-ui-artifacts");
+            Directory.CreateDirectory(screenshotDirectory);
+            await session.Dispatch<bool>(async () =>
+            {
+                var preferences = Preferences.Instance;
+                preferences.SvnInstallPath = SourceGit.Native.Svn.ResolveExecutable(string.Empty);
+                preferences.GitInstallPath = SourceGit.Native.OS.FindGitExecutable();
+                preferences.SvnConfigDirectory = config;
+                preferences.SetCanModify();
+
+                var window = new Window { Width = 1024, Height = 600 };
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                await VerifyLocalWorkingCopyUi(window, workingCopy, screenshotDirectory);
+                window.Close();
+                Console.WriteLine("Screenshots: " + screenshotDirectory);
+                return true;
+            }, uiTimeout.Token);
+
+            Check(s_checks >= 25, "focused local working-copy UI workflow executed all checks");
+            Console.WriteLine($"{s_checks} focused SVN working-copy UI checks passed.");
+            return 0;
+        }
+        finally
+        {
+            await Task.Run(session.Dispose).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<string> CreateLocalWorkingCopyFixture(string temporary, string config)
+    {
+        var repository = Path.Combine(temporary, "local-status-repository");
+        var workingCopy = Path.Combine(temporary, "local status 工作 copy");
+        var remoteCopy = Path.Combine(temporary, "local-status-remote-copy");
+        await Run("svnadmin", "create", repository);
+        var url = new Uri(repository + Path.DirectorySeparatorChar).AbsoluteUri.TrimEnd('/');
+        await Run("svn", "checkout", "--config-dir", config, url, workingCopy);
+
+        foreach (var name in new[]
+        {
+            "modified.txt", "added-source.txt", "deleted.txt", "missing.txt", "property-only.txt",
+            "conflicted.txt", "replacement.txt", "copy-source.txt", "move-source.txt", "nested/inside.txt",
+        })
+        {
+            var path = Path.Combine(workingCopy, name);
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, name == "conflicted.txt" ? "base conflict line\n" : "base line\n");
+        }
+        await Run("svn", "add", "--force", "--", workingCopy);
+        await Run("svn", "commit", "--config-dir", config, "-m", "working copy baseline", "--", workingCopy);
+
+        // Create a genuine text conflict entirely against the local file:// repository.
+        await Run("svn", "checkout", "--config-dir", config, url, remoteCopy);
+        File.WriteAllText(Path.Combine(workingCopy, "conflicted.txt"), "local conflict line\n");
+        File.WriteAllText(Path.Combine(remoteCopy, "conflicted.txt"), "remote conflict line\n");
+        await Run("svn", "commit", "--config-dir", config, "-m", "remote conflict edit", "--", remoteCopy);
+        await Run("svn", "update", "--config-dir", config, "--", workingCopy);
+
+        File.WriteAllText(Path.Combine(workingCopy, "modified.txt"), "modified local line\n");
+        await Run("svn", "delete", "--", Path.Combine(workingCopy, "deleted.txt"));
+        await Run("svn", "propset", "fixture:label", "local-only", "--", Path.Combine(workingCopy, "property-only.txt"));
+        await Run("svn", "delete", "--", Path.Combine(workingCopy, "replacement.txt"));
+        File.WriteAllText(Path.Combine(workingCopy, "replacement.txt"), "replacement local line\n");
+        await Run("svn", "add", "--", Path.Combine(workingCopy, "replacement.txt"));
+        await Run("svn", "copy", "--", Path.Combine(workingCopy, "copy-source.txt"), Path.Combine(workingCopy, "copied.txt"));
+        await Run("svn", "move", "--", Path.Combine(workingCopy, "move-source.txt"), Path.Combine(workingCopy, "moved.txt"));
+        var addedFile = Path.Combine(workingCopy, "added.txt");
+        File.WriteAllText(addedFile, "added local line\n");
+        await Run("svn", "add", "--", addedFile);
+        var addedDirectory = Path.Combine(workingCopy, "added-directory");
+        Directory.CreateDirectory(addedDirectory);
+        File.WriteAllText(Path.Combine(addedDirectory, "child.txt"), "added child\n");
+        await Run("svn", "add", "--force", "--", addedDirectory);
+        File.WriteAllText(Path.Combine(workingCopy, "unversioned.txt"), "unversioned local line\n");
+        File.Delete(Path.Combine(workingCopy, "missing.txt"));
+        return workingCopy;
+    }
+
+    private static async Task VerifyLocalWorkingCopyUi(Window window, string workingCopy, string screenshotDirectory)
+    {
+        window.Width = 1024;
+        window.Height = 600;
+        using var repository = new SvnRepository(workingCopy);
+        var node = new RepositoryNode { Id = workingCopy, Name = "SVN local status fixture", IsRepository = true, IsSvn = true };
+        window.Content = new SourceGit.Views.LauncherPage { DataContext = new LauncherPage(node, repository) };
+        Dispatcher.UIThread.RunJobs();
+        await repository.RefreshAsync();
+        await WaitForPaths(repository);
+        await WaitUntil(() => !repository.IsLoading && !repository.WorkingCopy.IsLoading);
+        if (repository.WorkingCopy.IsEmpty || repository.WorkingCopy.HasError)
+            await repository.WorkingCopy.RefreshAsync();
+        await WaitForWorkingCopy(repository.WorkingCopy);
+
+        var repositoryTabs = window.GetVisualDescendants().OfType<TabControl>().Single(control => control.Name == "RepositoryTabs");
+        repositoryTabs.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        Check(repository.SelectedTabIndex == 1, "working-copy tab selection is bound to repository state");
+        var grid = window.GetVisualDescendants().OfType<DataGrid>().Single(control => control.Name == "WorkingCopyEntries");
+        Check(ReferenceEquals(grid.ItemsSource, repository.WorkingCopy.Entries) && grid.IsReadOnly && grid.GetVisualDescendants().OfType<DataGridRow>().Any(),
+            "working-copy status rows are displayed read-only");
+
+        var entries = repository.WorkingCopy;
+        Check(!entries.HasError && !entries.IsEmpty && entries.CanRefresh && entries.Title.Length > 0,
+            "local status loads independently with a populated title");
+        var modified = FindWorkingCopyEntry(entries, "modified.txt");
+        var added = FindWorkingCopyEntry(entries, "added.txt");
+        var deleted = FindWorkingCopyEntry(entries, "deleted.txt");
+        var missing = FindWorkingCopyEntry(entries, "missing.txt");
+        var unversioned = FindWorkingCopyEntry(entries, "unversioned.txt");
+        var propertyOnly = FindWorkingCopyEntry(entries, "property-only.txt");
+        var conflicted = FindWorkingCopyEntry(entries, "conflicted.txt");
+        var directory = FindWorkingCopyEntry(entries, "added-directory");
+        var copied = FindWorkingCopyEntry(entries, "copied.txt");
+        var moveSource = FindWorkingCopyEntry(entries, "move-source.txt");
+        var moved = FindWorkingCopyEntry(entries, "moved.txt");
+        var replacement = FindWorkingCopyEntry(entries, "replacement.txt");
+        Check(modified.Entry.Item == "modified" && added.Entry.Item == "added" && deleted.Entry.Item == "deleted" &&
+            unversioned.Entry.Item == "unversioned", "modified, scheduled add/delete, and unversioned states are distinct");
+        Check(missing.Entry.Item == "missing" && missing.HasWarning && conflicted.Entry.Item == "conflicted" && conflicted.HasWarning &&
+            entries.SelectionNotice.Length == 0, "missing and conflicted states carry warning presentation");
+        Check(propertyOnly.Entry.Item == "normal" && propertyOnly.Entry.Properties == "modified",
+            "property-only changes remain distinct from text changes");
+        Check(directory.Entry.Item == "added" && directory.Entry.Kind == "dir" &&
+            FindWorkingCopyEntry(entries, "child.txt").Entry.Item == "added", "added directory and child are retained");
+        Check(copied.Entry.Item == "added" && copied.Entry.IsCopied && !string.IsNullOrEmpty(moveSource.Entry.MovedTo) &&
+            moved.Entry.IsCopied && !string.IsNullOrEmpty(moved.Entry.MovedFrom), "copy and move ancestry is preserved");
+        Check(replacement.Entry.Item == "replaced", "delete-and-add replacement state is retained");
+
+        var modifiedPath = Path.Combine(workingCopy, "modified.txt");
+        var originalModifiedContent = File.ReadAllText(modifiedPath);
+        await SelectWorkingCopyEntry(entries, grid, modified);
+        Check(entries.IsTextDiff && !entries.HasDiffError && entries.DiffContent is TextDiffContext modifiedDiff &&
+            modifiedDiff.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Deleted && line.Content.Contains("base line", StringComparison.Ordinal)) &&
+            modifiedDiff.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Added && line.Content.Contains("modified local line", StringComparison.Ordinal)),
+            "modified working-copy diff compares BASE with the local file");
+        Check(!entries.DiffContent.Option.IsLocalChange, "working-copy diff does not expose Git hunk mutation actions");
+        repository.DiffModeSideBySide = false;
+        Check(entries.DiffContent is CombinedTextDiff, "repository diff mode selects the combined local layout");
+        repository.DiffModeSideBySide = true;
+        Check(entries.DiffContent is TwoSideTextDiff && entries.IsTextDiff,
+            "repository diff mode updates an already loaded local diff without reloading it");
+        repository.DiffModeSideBySide = false;
+        var localDiffView = window.GetVisualDescendants().OfType<SourceGit.Views.TextDiffView>().Single(control => control.IsVisible);
+        var localHunkActions = localDiffView.GetVisualDescendants().OfType<StackPanel>().Single(panel => panel.Name == "Popup");
+        Check(!localHunkActions.IsVisible, "working-copy diff hides Git stage, unstage, and discard actions");
+
+        await SelectWorkingCopyEntry(entries, grid, added);
+        Check(entries.IsTextDiff && entries.DiffContent.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Added &&
+            line.Content.Contains("added local line", StringComparison.Ordinal)), "scheduled addition diff includes the new file contents");
+        await SelectWorkingCopyEntry(entries, grid, deleted);
+        Check(entries.IsTextDiff && entries.DiffContent.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Deleted &&
+            line.Content.Contains("base line", StringComparison.Ordinal)), "scheduled deletion diff includes removed contents");
+        await SelectWorkingCopyEntry(entries, grid, unversioned);
+        Check(entries.IsTextDiff && entries.DiffContent.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Added &&
+            line.Content.Contains("unversioned local line", StringComparison.Ordinal)), "unversioned file receives an empty-to-local preview");
+        await SelectWorkingCopyEntry(entries, grid, missing);
+        Check(!entries.HasDiffError && entries.IsTextDiff && entries.DiffContent.Data.Lines.Any(line =>
+            line.Type == SourceGit.Models.TextDiffLineType.Deleted && line.Content.Contains("base line", StringComparison.Ordinal)) &&
+            entries.SelectionNotice.Contains("not scheduled for deletion", StringComparison.Ordinal) && missing.Entry.Item == "missing",
+            "missing file shows BASE contents as absent without scheduling deletion");
+        await SelectWorkingCopyEntry(entries, grid, directory);
+        Check(!entries.HasDiffError && !entries.IsTextDiff && entries.DiffNotice.Length > 0,
+            "directory selection reports that it has no text diff");
+        await SelectWorkingCopyEntry(entries, grid, copied);
+        Check(!entries.HasDiffError && entries.IsTextDiff && entries.DiffContent.Data.Lines.Any(line =>
+            line.Type == SourceGit.Models.TextDiffLineType.Added && line.Content.Contains("base line", StringComparison.Ordinal)),
+            "copy diff shows the copied source as a local addition");
+        await SelectWorkingCopyEntry(entries, grid, moved);
+        Check(!entries.HasDiffError && entries.IsTextDiff && entries.DiffContent.Data.Lines.Any(line =>
+            line.Type == SourceGit.Models.TextDiffLineType.Added && line.Content.Contains("base line", StringComparison.Ordinal)),
+            "moved destination diff shows the copied source contents");
+        await SelectWorkingCopyEntry(entries, grid, replacement);
+        Check(entries.IsTextDiff && entries.DiffContent.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Deleted &&
+            line.Content.Contains("base line", StringComparison.Ordinal)) && entries.DiffContent.Data.Lines.Any(line => line.Type == SourceGit.Models.TextDiffLineType.Added &&
+            line.Content.Contains("replacement local line", StringComparison.Ordinal)), "replacement diff compares old and replacement contents");
+        await SelectWorkingCopyEntry(entries, grid, conflicted);
+        Check(conflicted.HasWarning && entries.SelectionNotice.Contains("BASE", StringComparison.Ordinal) &&
+            !entries.HasDiffError && entries.IsTextDiff,
+            "conflicted file keeps a local preview and explicit conflict notice");
+
+        await SelectWorkingCopyEntry(entries, grid, propertyOnly);
+        Check(entries.HasPropertyDiff && entries.PropertyDiffContent.Contains("fixture:label", StringComparison.Ordinal) &&
+            entries.PropertyDiffContent.Contains("local-only", StringComparison.Ordinal), "property-only change has a readable property diff");
+        var diffTabs = window.GetVisualDescendants().OfType<TabControl>().Single(control => control.Name == "WorkingCopyDiffTabs");
+        diffTabs.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(window, theme,
+                Path.Combine(screenshotDirectory, "working-copy-property-" + theme + ".png"), "working-copy property diff");
+
+        diffTabs.SelectedIndex = 0;
+        await SelectWorkingCopyEntry(entries, grid, conflicted);
+        Check(entries.SelectedEntry == conflicted && entries.SelectionNotice.Length > 0,
+            "conflict selection presents the conflict state in the local diff pane");
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(window, theme,
+                Path.Combine(screenshotDirectory, "working-copy-conflict-" + theme + ".png"), "working-copy conflict state");
+
+        repositoryTabs.SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+        Check(repository.SelectedTabIndex == 0, "switching back to history preserves its active tab state");
+        var historicalPathsGrid = window.GetVisualDescendants().OfType<DataGrid>()
+            .Single(control => ReferenceEquals(control.ItemsSource, repository.ChangedPaths));
+        await WaitForPaths(repository);
+        const string expectedHistoricalPath = "/conflicted.txt";
+        var changedPathDetails = string.Join(", ", repository.ChangedPaths.Select(path => $"{path.Path} ({path.Kind})"));
+        Check(!repository.HasPathsError && repository.ChangedPaths.Any(path => path.Path == expectedHistoricalPath),
+            $"expected historical path {expectedHistoricalPath}; HasPathsError={repository.HasPathsError}; Details={repository.PathsErrorDetails}; ChangedPaths=[{changedPathDetails}]");
+        var historicalPath = repository.ChangedPaths.Single(path => path.Path == expectedHistoricalPath);
+        historicalPathsGrid.SelectedItem = historicalPath;
+        Dispatcher.UIThread.RunJobs();
+        await WaitForDiff(repository);
+        var selection = repository.SelectedRevision;
+        Check(ReferenceEquals(repository.SelectedChangedPath, historicalPath) && repository.IsTextDiff,
+            "history tab retains an independently selected historical diff");
+        var beforeSideBySide = DescribeSharedDiffMode(repository);
+        repository.DiffModeSideBySide = true;
+        var afterSideBySide = DescribeSharedDiffMode(repository);
+        Check(repository.DiffContent is TwoSideTextDiff && entries.DiffContent is TwoSideTextDiff,
+            $"shared diff mode updates both historical and local views; Before=[{beforeSideBySide}] After=[{afterSideBySide}]");
+        var beforeCombined = DescribeSharedDiffMode(repository);
+        repository.DiffModeSideBySide = false;
+        var afterCombined = DescribeSharedDiffMode(repository);
+        Check(repository.DiffContent is CombinedTextDiff && entries.DiffContent is CombinedTextDiff,
+            $"shared diff mode switches both views back without reloading; Before=[{beforeCombined}] After=[{afterCombined}]");
+        repositoryTabs.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        Check(repository.SelectedTabIndex == 1 && ReferenceEquals(entries.SelectedEntry, conflicted) &&
+            ReferenceEquals(repository.SelectedChangedPath, historicalPath) && ReferenceEquals(repository.SelectedRevision, selection),
+            "switching tabs preserves both history and local selections");
+
+        await entries.RefreshAsync();
+        await WaitForWorkingCopy(entries);
+        await WaitForLocalDiff(entries);
+        Check(entries.SelectedEntry?.Path == conflicted.Path && !entries.HasError && !entries.HasDiffError &&
+            File.ReadAllText(modifiedPath) == originalModifiedContent, "local refresh and diff leave the working copy unchanged and preserve selection");
+        await repository.RefreshActiveAsync();
+        await WaitForWorkingCopy(entries);
+        Check(ReferenceEquals(repository.SelectedRevision, selection), "active working-copy refresh leaves SVN history selection unchanged");
+    }
+
+    private static SvnWorkingCopyEntry FindWorkingCopyEntry(SvnWorkingCopy workingCopy, string fileName) =>
+        workingCopy.Entries.Single(entry => entry.Path.Replace('\\', '/').Split('/').Last() == fileName);
+
+    private static async Task SelectWorkingCopyEntry(SvnWorkingCopy workingCopy, DataGrid grid, SvnWorkingCopyEntry entry, bool waitForDiff = true)
+    {
+        grid.SelectedItem = entry;
+        Dispatcher.UIThread.RunJobs();
+        Check(ReferenceEquals(workingCopy.SelectedEntry, entry), "working-copy row selection binding: " + entry.Path);
+        if (waitForDiff)
+            await WaitForLocalDiff(workingCopy);
+    }
+
+    private static async Task SaveSettledScreenshot(Window window, ThemeVariant theme, string path, string description)
+    {
+        Application.Current.RequestedThemeVariant = theme;
+        await Task.Delay(100);
+        Dispatcher.UIThread.RunJobs();
+        using (var warmup = window.CaptureRenderedFrame())
+            Check(warmup != null, "warm render " + description + " " + theme);
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+        Check(window.ActualThemeVariant == theme, "actual theme applied for " + description + " " + theme);
+        using var frame = window.CaptureRenderedFrame();
+        Check(frame != null, "render " + description + " " + theme);
+        frame.Save(path);
+    }
+
+    private static string DescribeSharedDiffMode(SvnRepository repository)
+    {
+        var workingCopy = repository.WorkingCopy;
+        return $"UseSideBySideDiff={Preferences.Instance.UseSideBySideDiff}; " +
+            $"HistoryDiff={repository.DiffContent?.GetType().Name ?? "null"}; " +
+            $"LocalDiff={workingCopy.DiffContent?.GetType().Name ?? "null"}; " +
+            $"LocalLoading={workingCopy.IsLoading}; LocalDiffLoading={workingCopy.IsLoadingDiff}; " +
+            $"LocalHasDiffError={workingCopy.HasDiffError}; LocalSelection={workingCopy.SelectedEntry?.Path ?? "<none>"}; " +
+            $"LocalDiffNotice={workingCopy.DiffNotice}; LocalDiffErrorDetails={workingCopy.DiffErrorDetails}";
     }
 
     private static void Check(bool condition, string description)
@@ -610,6 +977,39 @@ internal static class Program
         var url = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_URL");
         if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(url))
             return 2;
+        if (args[0] == "status")
+        {
+            File.AppendAllText(Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS"), "status\n");
+            if (Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_STATUS_ENTRIES") == "1")
+            {
+                var offlineA = SecurityElement.Escape(Path.Combine(root, "offline-a.txt"));
+                var offlineB = SecurityElement.Escape(Path.Combine(root, "offline-b.txt"));
+                Console.WriteLine($"<status><target path=\"{SecurityElement.Escape(root)}\">" +
+                    $"<entry path=\"{offlineA}\"><wc-status item=\"modified\" props=\"none\" revision=\"104\"/></entry>" +
+                    $"<entry path=\"{offlineB}\"><wc-status item=\"modified\" props=\"none\" revision=\"104\"/></entry></target></status>");
+            }
+            else
+            {
+                Console.WriteLine($"<status><target path=\"{SecurityElement.Escape(root)}\" /></status>");
+            }
+            return 0;
+        }
+
+        if (args[0] == "diff")
+        {
+            var target = GetLocalCommandTarget(args);
+            File.AppendAllText(Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS"), $"localdiff {target}\n");
+            await DelayLocalDiffResponse(target);
+            var fileName = Path.GetFileName(target.Replace('\\', '/'));
+            var body = fileName == "offline-a.txt" ? "offline baseline A" : "offline baseline B";
+            var patch = $"Index: {target}\n===================================================================\n--- {target}\t(revision 104)\n+++ {target}\t(working copy)\n@@ -1 +1 @@\n-{body}\n+updated {body}\n";
+            await Console.OpenStandardOutput().WriteAsync(Encoding.UTF8.GetBytes(patch));
+            return 0;
+        }
+
+        if (args[0] == "propget")
+            return 0;
+
         if (args[0] == "info")
         {
             if (args.Contains("--revision", StringComparer.Ordinal))
@@ -731,6 +1131,12 @@ internal static class Program
         return peg >= 0 ? target[..peg] : target;
     }
 
+    private static string GetLocalCommandTarget(string[] args)
+    {
+        var target = args[^1];
+        return target.EndsWith('@') ? target[..^1] : target;
+    }
+
     private static byte[] GetFakeFileContent(string target, long revision)
     {
         var path = Uri.UnescapeDataString(target);
@@ -778,6 +1184,18 @@ internal static class Program
         await Task.Delay(TimeSpan.FromSeconds(2));
     }
 
+    private static async Task DelayLocalDiffResponse(string target)
+    {
+        var delayedPath = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_PATH");
+        if (string.IsNullOrEmpty(delayedPath) || !target.Contains(delayedPath, StringComparison.Ordinal))
+            return;
+
+        var marker = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_LOCAL_DIFF_DELAY_STARTED");
+        if (!string.IsNullOrEmpty(marker))
+            File.WriteAllText(marker, target);
+        await Task.Delay(TimeSpan.FromSeconds(2));
+    }
+
     private static string CreateFakeChangedPathsXml(long revision)
     {
         if (revision == 104)
@@ -817,8 +1235,13 @@ internal static class Program
     private static int CountHistoryCalls(string path) =>
         File.ReadAllLines(path).Count(line => line.StartsWith("history ", StringComparison.Ordinal));
 
+    private static int CountStatusCalls(string path) =>
+        File.ReadAllLines(path).Count(line => line == "status");
+
     private static Task WaitForPaths(SvnRepository repository) => WaitUntil(() => !repository.IsLoadingPaths);
     private static Task WaitForDiff(SvnRepository repository) => WaitUntil(() => !repository.IsLoadingDiff);
+    private static Task WaitForWorkingCopy(SvnWorkingCopy workingCopy) => WaitUntil(() => !workingCopy.IsLoading);
+    private static Task WaitForLocalDiff(SvnWorkingCopy workingCopy) => WaitUntil(() => !workingCopy.IsLoadingDiff);
 
     private static async Task<SourceGit.Native.SvnChangedPath> SelectChangedPath(SvnRepository repository, DataGrid pathsGrid,
         long revision, Func<SourceGit.Native.SvnChangedPath, bool> matches, bool waitForDiff = true)

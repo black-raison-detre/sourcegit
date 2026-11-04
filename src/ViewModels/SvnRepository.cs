@@ -12,6 +12,7 @@ namespace SourceGit.ViewModels
     public class SvnRepository : ObservableObject, IDisposable
     {
         public string FullPath { get; }
+        public SvnWorkingCopy WorkingCopy { get; }
         public AvaloniaList<Native.SvnRevision> Revisions { get; } = new();
         public AvaloniaList<Native.SvnChangedPath> ChangedPaths { get; } = new();
 
@@ -20,6 +21,24 @@ namespace SourceGit.ViewModels
             get => _url;
             private set => SetProperty(ref _url, value);
         }
+
+        public int SelectedTabIndex
+        {
+            get => _selectedTabIndex;
+            set
+            {
+                if (SetProperty(ref _selectedTabIndex, value))
+                {
+                    OnPropertyChanged(nameof(IsWorkingCopyTabActive));
+                    NotifyActiveState();
+                }
+            }
+        }
+
+        public bool IsWorkingCopyTabActive => SelectedTabIndex == 1;
+        public string ActiveTitle => App.Text(SelectedTabIndex == 1 ? "SVN.WorkingCopy" : "SVN.History");
+        public bool IsLoadingActive => SelectedTabIndex == 1 ? WorkingCopy.IsLoading : IsLoading;
+        public bool CanRefreshActive => SelectedTabIndex == 1 ? WorkingCopy.CanRefresh : CanRefresh;
 
         public Native.SvnRevision SelectedRevision
         {
@@ -148,9 +167,20 @@ namespace SourceGit.ViewModels
         public SvnRepository(string fullPath)
         {
             FullPath = fullPath;
+            WorkingCopy = new SvnWorkingCopy(fullPath);
+            WorkingCopy.PropertyChanged += OnWorkingCopyStateChanged;
+            Preferences.Instance.PropertyChanged += OnDiffPreferencesChanged;
         }
 
         public Task RefreshAsync() => LoadAsync(false);
+        public Task RefreshActiveAsync() => SelectedTabIndex == 1 ? WorkingCopy.RefreshAsync() : RefreshAsync();
+        public void CancelActive()
+        {
+            if (SelectedTabIndex == 1)
+                WorkingCopy.Cancel();
+            else
+                Cancel();
+        }
         public Task RetryAsync() => _retryFileDiff ? RetryDiffAsync() : _retryPaths ? RetryChangedPathsAsync() : LoadAsync(_retryPage);
         public Task LoadMoreAsync() => CanLoadMore ? LoadAsync(true) : Task.CompletedTask;
 
@@ -210,6 +240,9 @@ namespace SourceGit.ViewModels
                 return;
 
             _disposed = true;
+            Preferences.Instance.PropertyChanged -= OnDiffPreferencesChanged;
+            WorkingCopy.PropertyChanged -= OnWorkingCopyStateChanged;
+            WorkingCopy.Dispose();
             _credentials = null;
             Password = string.Empty;
             _cancellation?.Cancel();
@@ -230,6 +263,29 @@ namespace SourceGit.ViewModels
             _diffContent = null;
             ClearDiffAuthenticationError();
             NotifyDiffState();
+        }
+
+        private void OnDiffPreferencesChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(Preferences.UseSideBySideDiff))
+                return;
+
+            if (_diffContent != null && _diffContent.IsSideBySide() != DiffModeSideBySide)
+                _diffContent = _diffContent.SwitchMode();
+            NotifyDiffState();
+        }
+
+        private void OnWorkingCopyStateChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(SvnWorkingCopy.IsLoading) or nameof(SvnWorkingCopy.CanRefresh))
+                NotifyActiveState();
+        }
+
+        private void NotifyActiveState()
+        {
+            OnPropertyChanged(nameof(ActiveTitle));
+            OnPropertyChanged(nameof(IsLoadingActive));
+            OnPropertyChanged(nameof(CanRefreshActive));
         }
 
         private void ClearDiffAuthenticationError()
@@ -616,6 +672,7 @@ namespace SourceGit.ViewModels
 
         private void NotifyState()
         {
+            NotifyActiveState();
             OnPropertyChanged(nameof(IsLoading));
             OnPropertyChanged(nameof(CanRefresh));
             OnPropertyChanged(nameof(HasMore));
@@ -628,6 +685,7 @@ namespace SourceGit.ViewModels
         }
 
         private const int PageSize = 100;
+        private int _selectedTabIndex;
         private CancellationTokenSource _cancellation;
         private CancellationTokenSource _pathsCancellation;
         private CancellationTokenSource _diffCancellation;
