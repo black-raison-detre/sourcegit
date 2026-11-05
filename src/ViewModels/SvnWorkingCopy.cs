@@ -72,6 +72,8 @@ namespace SourceGit.ViewModels
             get => _selectedEntry;
             set
             {
+                if (IsBusy)
+                    return;
                 if (SetProperty(ref _selectedEntry, value))
                 {
                     InvalidateDiff();
@@ -81,7 +83,16 @@ namespace SourceGit.ViewModels
         }
 
         public bool IsLoading => _isLoading;
-        public bool CanRefresh => !_disposed && !IsLoading;
+        public bool IsBusy => IsLoading || _isMutating;
+        public bool CanRefresh => !_disposed && !IsBusy;
+        public bool CanAdd => CanRefresh && _status == "Ready" && Entries.Contains(SelectedEntry) && Native.Svn.CanAdd(SelectedEntry?.Entry);
+        public bool CanRemove => CanRefresh && _status == "Ready" && Entries.Contains(SelectedEntry) && Native.Svn.CanRemove(SelectedEntry?.Entry);
+        public bool CanUndo => CanRefresh && _status == "Ready" && Entries.Contains(SelectedEntry) && Native.Svn.CanUndo(SelectedEntry?.Entry);
+        public string BusyMessage => App.Text(_isMutating ? "SVN.WorkingCopy.Applying" : "SVN.WorkingCopy.Loading");
+        public bool HasActionError => !string.IsNullOrEmpty(_actionErrorMessage);
+        public string ActionErrorMessage => _actionErrorMessage;
+        public string ActionErrorDetails => _actionErrorDetails;
+        public string ActionNotice => _actionNotice;
         public bool HasError => !string.IsNullOrEmpty(_status) && _status != "Ready";
         public string ErrorMessage => !HasError ? string.Empty : App.Text(_status switch
         {
@@ -99,7 +110,7 @@ namespace SourceGit.ViewModels
                 ? App.Text("SVN.WorkingCopy.ConflictNotice") : string.Empty;
 
         public bool IsLoadingDiff => _isLoadingDiff;
-        public bool CanRetryDiff => !_disposed && !IsLoading && !IsLoadingDiff && HasSelection;
+        public bool CanRetryDiff => !_disposed && !IsBusy && !IsLoadingDiff && HasSelection;
         public bool HasDiffError => !string.IsNullOrEmpty(_diffStatus) && _diffStatus != "Ready";
         public string DiffErrorMessage => !HasDiffError ? string.Empty :
             App.Text(_diffStatus == "Cancelled" ? "SVN.Diff.Cancelled" : "SVN.WorkingCopy.DiffFailed");
@@ -133,9 +144,11 @@ namespace SourceGit.ViewModels
             Preferences.Instance.PropertyChanged += OnDiffPreferencesChanged;
         }
 
-        public async Task RefreshAsync()
+        public Task RefreshAsync() => RefreshStatusAsync(false);
+
+        private async Task RefreshStatusAsync(bool afterAction)
         {
-            if (!CanRefresh)
+            if (_disposed || IsLoading || (!afterAction && !CanRefresh))
                 return;
 
             var selectedPath = SelectedEntry?.Path;
@@ -191,10 +204,103 @@ namespace SourceGit.ViewModels
             }
         }
 
-        public void Cancel() => _cancellation?.Cancel();
+        public Task AddAsync() => ApplyActionAsync(WorkingCopyAction.Add, null);
+
+        public Task RemoveAsync(Func<string, Task<bool>> confirm) => ApplyActionAsync(WorkingCopyAction.Remove, confirm);
+
+        public Task UndoAsync() => ApplyActionAsync(WorkingCopyAction.Undo, null);
+
+        private async Task ApplyActionAsync(WorkingCopyAction action, Func<string, Task<bool>> confirm)
+        {
+            if (!(action switch
+            {
+                WorkingCopyAction.Add => CanAdd,
+                WorkingCopyAction.Remove => CanRemove,
+                _ => CanUndo,
+            }))
+                return;
+
+            var selected = SelectedEntry;
+            var failureKey = action switch
+            {
+                WorkingCopyAction.Add => "SVN.WorkingCopy.AddFailed",
+                WorkingCopyAction.Remove => "SVN.WorkingCopy.RemoveFailed",
+                _ => "SVN.WorkingCopy.UndoFailed",
+            };
+            _isMutating = true;
+            _actionErrorMessage = string.Empty;
+            _actionErrorDetails = string.Empty;
+            _actionNotice = string.Empty;
+            InvalidateDiff();
+            NotifyState();
+            using var cancellation = new CancellationTokenSource();
+            _actionCancellation = cancellation;
+            var attempted = false;
+            try
+            {
+                if (action == WorkingCopyAction.Remove &&
+                    (confirm == null || !await confirm(App.Text("SVN.WorkingCopy.RemoveConfirm", selected.Path))))
+                    return;
+                if (_disposed)
+                    return;
+
+                cancellation.Token.ThrowIfCancellationRequested();
+                attempted = true;
+                var executable = Native.Svn.ResolveExecutable(Preferences.Instance.SvnInstallPath);
+                var config = Preferences.Instance.SvnConfigDirectory;
+                var result = await Task.Run(() => action switch
+                {
+                    WorkingCopyAction.Add => Native.Svn.AddAsync(executable, config, FullPath, selected.Path, cancellation.Token),
+                    WorkingCopyAction.Remove => Native.Svn.RemoveAsync(executable, config, FullPath, selected.Path, cancellation.Token),
+                    _ => Native.Svn.UndoAsync(executable, config, FullPath, selected.Path, cancellation.Token),
+                }, cancellation.Token);
+                if (result.Status == "Ready")
+                    _actionNotice = App.Text(action switch
+                    {
+                        WorkingCopyAction.Add => "SVN.WorkingCopy.Added",
+                        WorkingCopyAction.Remove => "SVN.WorkingCopy.Removed",
+                        _ => "SVN.WorkingCopy.Undone",
+                    }, selected.Path);
+                else
+                {
+                    _actionErrorMessage = App.Text(failureKey, selected.Path);
+                    _actionErrorDetails = result.Details;
+                }
+            }
+            catch (OperationCanceledException ex)
+            {
+                _actionErrorMessage = App.Text("SVN.WorkingCopy.ActionCancelled");
+                _actionErrorDetails = ex.Message;
+            }
+            catch (Exception ex)
+            {
+                _actionErrorMessage = App.Text(failureKey, selected.Path);
+                _actionErrorDetails = ex.Message;
+            }
+            finally
+            {
+                _actionCancellation = null;
+                // A cancelled or failed command may already have changed scheduling.
+                // Keep actions disabled until fresh local status has been loaded.
+                if (attempted && !_disposed)
+                    await RefreshStatusAsync(true);
+                _isMutating = false;
+                if (!_disposed)
+                {
+                    NotifyState();
+                    _ = RetryDiffAsync();
+                }
+            }
+        }
+
+        public void Cancel()
+        {
+            _cancellation?.Cancel();
+            _actionCancellation?.Cancel();
+        }
         public void CancelDiff() => _diffCancellation?.Cancel();
 
-        public Task RetryDiffAsync() => !_disposed && !IsLoading && !IsLoadingDiff && HasSelection ? LoadDiffAsync() : Task.CompletedTask;
+        public Task RetryDiffAsync() => CanRetryDiff ? LoadDiffAsync() : Task.CompletedTask;
 
         public void Dispose()
         {
@@ -205,6 +311,7 @@ namespace SourceGit.ViewModels
             Preferences.Instance.PropertyChanged -= OnDiffPreferencesChanged;
             _cancellation?.Cancel();
             _diffCancellation?.Cancel();
+            _actionCancellation?.Cancel();
         }
 
         private void InvalidateDiff()
@@ -383,7 +490,13 @@ namespace SourceGit.ViewModels
         private void NotifyState()
         {
             OnPropertyChanged(nameof(IsLoading));
+            OnPropertyChanged(nameof(IsBusy));
+            OnPropertyChanged(nameof(BusyMessage));
             OnPropertyChanged(nameof(CanRefresh));
+            OnPropertyChanged(nameof(HasActionError));
+            OnPropertyChanged(nameof(ActionErrorMessage));
+            OnPropertyChanged(nameof(ActionErrorDetails));
+            OnPropertyChanged(nameof(ActionNotice));
             OnPropertyChanged(nameof(HasError));
             OnPropertyChanged(nameof(ErrorMessage));
             OnPropertyChanged(nameof(ErrorDetails));
@@ -394,6 +507,9 @@ namespace SourceGit.ViewModels
 
         private void NotifyDiffState()
         {
+            OnPropertyChanged(nameof(CanAdd));
+            OnPropertyChanged(nameof(CanRemove));
+            OnPropertyChanged(nameof(CanUndo));
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(SelectionNotice));
             OnPropertyChanged(nameof(IsLoadingDiff));
@@ -413,13 +529,22 @@ namespace SourceGit.ViewModels
             OnPropertyChanged(nameof(PropertyNotice));
         }
 
+        private enum WorkingCopyAction
+        {
+            Add,
+            Remove,
+            Undo,
+        }
+
         private SvnWorkingCopyEntry _selectedEntry;
         private CancellationTokenSource _cancellation;
         private CancellationTokenSource _diffCancellation;
+        private CancellationTokenSource _actionCancellation;
         private TextDiffContext _diffContent;
         private bool _disposed;
         private bool _isLoading;
         private bool _isLoadingDiff;
+        private bool _isMutating;
         private bool _diffIsMissing;
         private bool _diffIsTooLarge;
         private string _status = string.Empty;
@@ -430,5 +555,8 @@ namespace SourceGit.ViewModels
         private string _diffBeforeText = string.Empty;
         private string _diffAfterText = string.Empty;
         private string _propertyDiffContent = string.Empty;
+        private string _actionErrorMessage = string.Empty;
+        private string _actionErrorDetails = string.Empty;
+        private string _actionNotice = string.Empty;
     }
 }

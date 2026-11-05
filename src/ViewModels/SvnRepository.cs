@@ -38,7 +38,7 @@ namespace SourceGit.ViewModels
 
         public bool IsWorkingCopyTabActive => SelectedTabIndex == 1;
         public string ActiveTitle => App.Text(SelectedTabIndex == 1 ? "SVN.WorkingCopy" : "SVN.History");
-        public bool IsLoadingActive => SelectedTabIndex == 1 ? WorkingCopy.IsLoading : IsLoading;
+        public bool IsLoadingActive => SelectedTabIndex == 1 ? WorkingCopy.IsBusy : IsLoading;
         public bool CanRefreshActive => SelectedTabIndex == 1 ? WorkingCopy.CanRefresh : CanRefresh;
 
         public Native.SvnRevision SelectedRevision
@@ -282,7 +282,7 @@ namespace SourceGit.ViewModels
 
         private void OnWorkingCopyStateChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (e.PropertyName is nameof(SvnWorkingCopy.IsLoading) or nameof(SvnWorkingCopy.CanRefresh))
+            if (e.PropertyName is nameof(SvnWorkingCopy.IsBusy) or nameof(SvnWorkingCopy.CanRefresh))
                 NotifyActiveState();
         }
 

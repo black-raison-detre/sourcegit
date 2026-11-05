@@ -21,7 +21,9 @@
 
 ## Next: working-copy actions
 
-- [ ] Add deliberate user actions for add/remove, commit, update, and revert, with appropriate confirmation for discarded edits.
+- [x] Add selected unversioned paths and schedule removal of selected tracked/missing paths while keeping local files; confirm removal and refresh local status after actions.
+- [x] Undo pending additions and removals before commit while preserving local file contents. Leave generic discard/revert of other local edits for a separate action.
+- [ ] Add deliberate user actions for commit, update, and revert, with appropriate confirmation for discarded edits.
 
 ## Later increments
 

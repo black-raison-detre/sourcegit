@@ -848,6 +848,154 @@ internal static class Program
         await repository.RefreshActiveAsync();
         await WaitForWorkingCopy(entries);
         Check(ReferenceEquals(repository.SelectedRevision, selection), "active working-copy refresh leaves SVN history selection unchanged");
+
+        var addButton = window.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "WorkingCopyAdd");
+        var removeButton = window.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "WorkingCopyRemove");
+        var undoButton = window.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "WorkingCopyUndo");
+        entries.SelectedEntry = null;
+        Dispatcher.UIThread.RunJobs();
+        Check(!addButton.IsEnabled && !removeButton.IsEnabled && !undoButton.IsEnabled,
+            "scheduling actions require a selected working-copy row");
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "conflicted.txt"));
+        Check(!entries.CanAdd && !entries.CanRemove, "conflicted rows cannot be scheduled through add/remove");
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "copied.txt"));
+        Check(!entries.CanAdd && !entries.CanRemove, "copy ancestry is excluded from basic scheduling actions");
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "unversioned.txt"));
+        Dispatcher.UIThread.RunJobs();
+        Check(addButton.IsEnabled && !removeButton.IsEnabled, "unversioned selection enables only Add");
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(window, theme,
+                Path.Combine(screenshotDirectory, "working-copy-add-" + theme + ".png"), "working-copy Add action");
+
+        // Exercise the actual toolbar handler through keyboard activation.
+        addButton.Focus();
+        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        await WaitUntil(() => !entries.IsBusy && entries.SelectedEntry?.Entry.Item == "added");
+        Check(!entries.HasActionError && entries.SelectedEntry.Path == "unversioned.txt" &&
+            File.ReadAllText(Path.Combine(workingCopy, "unversioned.txt")) == "unversioned local line\n",
+            "keyboard Add schedules the selected file and refreshes status without changing content");
+
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "modified.txt"));
+        var confirmation = new TaskCompletionSource<bool>();
+        var pendingRemoval = entries.RemoveAsync(message =>
+        {
+            Check(message.Contains("modified.txt", StringComparison.Ordinal) && message.Contains("kept", StringComparison.Ordinal),
+                "remove confirmation names the selected path and explains local preservation");
+            return confirmation.Task;
+        });
+        Check(entries.IsBusy && !entries.CanAdd && !entries.CanRemove && !entries.CanUndo && !entries.CanRefresh && !repository.CanRefreshActive,
+            "pending confirmation prevents concurrent actions and refresh");
+        await entries.AddAsync();
+        confirmation.SetResult(false);
+        await pendingRemoval;
+        Check(!entries.IsBusy && !entries.HasActionError && entries.SelectedEntry.Entry.Item == "modified" &&
+            File.ReadAllText(modifiedPath) == originalModifiedContent, "declining removal leaves scheduling and edited bytes unchanged");
+
+        await entries.RemoveAsync(_ => Task.FromResult(true));
+        await WaitForLocalDiff(entries);
+        Check(!entries.HasActionError && entries.SelectedEntry?.Entry.Item == "deleted" &&
+            File.ReadAllText(modifiedPath) == originalModifiedContent && !entries.CanRemove &&
+            entries.ActionNotice.Contains("kept", StringComparison.Ordinal),
+            "confirmed removal schedules deletion, preserves local edits, and refreshes eligibility");
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(window, theme,
+                Path.Combine(screenshotDirectory, "working-copy-remove-" + theme + ".png"), "working-copy removal result");
+
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "missing.txt"));
+        Check(entries.CanRemove && !entries.CanAdd, "missing versioned paths can be scheduled for removal");
+        await entries.RemoveAsync(_ => Task.FromResult(true));
+        Check(!entries.HasActionError && entries.SelectedEntry?.Entry.Item == "deleted" &&
+            !File.Exists(Path.Combine(workingCopy, "missing.txt")), "missing-path removal refreshes to scheduled deletion");
+
+        var actionDirectory = Path.Combine(workingCopy, "action @ directory");
+        Directory.CreateDirectory(actionDirectory);
+        File.WriteAllText(Path.Combine(actionDirectory, "child.txt"), "unscheduled child\n");
+        await entries.RefreshAsync();
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "action @ directory"));
+        await entries.AddAsync();
+        Check(!entries.HasActionError && entries.SelectedEntry?.Entry.Item == "added" &&
+            entries.Entries.Any(entry => entry.Path == Path.Combine("action @ directory", "child.txt") && entry.Entry.Item == "unversioned"),
+            "adding a directory exposes its unversioned children without recursively scheduling them");
+
+        var stalePath = Path.Combine(workingCopy, "stale @ action.txt");
+        File.WriteAllText(stalePath, "stale selection bytes\n");
+        await entries.RefreshAsync();
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "stale @ action.txt"));
+        await Run("svn", "add", "--", stalePath + "@");
+        await entries.AddAsync();
+        Check(entries.HasActionError && !entries.HasError && entries.Entries.Count > 0 && entries.CanRefresh &&
+            entries.SelectedEntry?.Entry.Item == "added" && File.ReadAllText(stalePath) == "stale selection bytes\n",
+            "stale scheduling is rejected with a separate action error while refreshed status remains usable");
+        await WaitForLocalDiff(entries);
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(window, theme,
+                Path.Combine(screenshotDirectory, "working-copy-action-error-" + theme + ".png"), "working-copy action error");
+
+        Dispatcher.UIThread.RunJobs();
+        Check(entries.CanUndo && undoButton.IsEnabled, "plain scheduled addition enables Undo");
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(window, theme,
+                Path.Combine(screenshotDirectory, "working-copy-undo-add-" + theme + ".png"), "Undo addition control");
+        undoButton.Focus();
+        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        await WaitUntil(() => !entries.IsBusy && entries.SelectedEntry?.Entry.Item == "unversioned");
+        Check(!entries.HasActionError && entries.CanAdd && !entries.CanUndo &&
+            File.ReadAllText(stalePath) == "stale selection bytes\n",
+            "keyboard Undo addition keeps local contents and refreshes to unversioned");
+
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "modified.txt"));
+        Dispatcher.UIThread.RunJobs();
+        Check(undoButton.IsEnabled && entries.CanUndo, "scheduled removal enables Undo");
+        undoButton.Focus();
+        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        await WaitUntil(() => !entries.IsBusy && entries.SelectedEntry?.Entry.Item == "modified");
+        await WaitForLocalDiff(entries);
+        Check(!entries.HasActionError && !entries.CanUndo && entries.CanRemove &&
+            File.ReadAllText(modifiedPath) == originalModifiedContent && entries.IsTextDiff &&
+            entries.DiffContent.Data.Lines.Any(line => line.Content.Contains("modified local line", StringComparison.Ordinal)),
+            "Undo removal preserves retained edits and shows the local diff instead of discarding it");
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(window, theme,
+                Path.Combine(screenshotDirectory, "working-copy-undo-remove-" + theme + ".png"), "Undo removal retained edits");
+
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "missing.txt"));
+        await entries.UndoAsync();
+        Check(!entries.HasActionError && entries.SelectedEntry == null && !entries.CanUndo &&
+            File.ReadAllText(Path.Combine(workingCopy, "missing.txt")) == "base line\n" &&
+            !entries.Entries.Any(entry => entry.Path == "missing.txt"),
+            "Undo removal of an absent file restores BASE and removes its clean row");
+
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "action @ directory"));
+        await entries.UndoAsync();
+        Check(!entries.HasActionError && entries.SelectedEntry?.Entry.Item == "unversioned" &&
+            File.ReadAllText(Path.Combine(actionDirectory, "child.txt")) == "unscheduled child\n",
+            "Undo added directory leaves its unversioned contents intact");
+        await entries.AddAsync();
+        await SelectWorkingCopyEntry(entries, grid,
+            entries.Entries.Single(entry => entry.Path == Path.Combine("action @ directory", "child.txt")));
+        await entries.AddAsync();
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "action @ directory"));
+        await entries.UndoAsync();
+        Check(!entries.HasActionError && entries.SelectedEntry?.Entry.Item == "unversioned" &&
+            File.ReadAllText(Path.Combine(actionDirectory, "child.txt")) == "unscheduled child\n",
+            "Undo a directory also unschedules its added children while retaining their bytes");
+
+        foreach (var name in new[] { "modified.txt", "conflicted.txt", "copied.txt", "replacement.txt", "property-only.txt" })
+        {
+            await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, name));
+            Check(!entries.CanUndo, "Undo does not offer generic discard or ancestry changes: " + name);
+        }
+
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "stale @ action.txt"));
+        await entries.AddAsync();
+        await Run("svn", "revert", "--config-dir", Preferences.Instance.SvnConfigDirectory, "--depth", "empty", "--", stalePath + "@");
+        await entries.UndoAsync();
+        Check(entries.HasActionError && !entries.HasError && entries.SelectedEntry?.Entry.Item == "unversioned" &&
+            File.ReadAllText(stalePath) == "stale selection bytes\n",
+            "stale Undo is rejected and refreshes status without discarding local contents");
     }
 
     private static SvnWorkingCopyEntry FindWorkingCopyEntry(SvnWorkingCopy workingCopy, string fileName) =>

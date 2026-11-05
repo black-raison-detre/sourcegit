@@ -1205,6 +1205,21 @@
   <x:String x:Key="Text.SVN.Diff.Special" xml:space="preserve">This path contains a special SVN file. A text diff is unavailable.</x:String>
   <x:String x:Key="Text.SVN.Diff.Splitter" xml:space="preserve">Resize changed paths and file diff panes</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.Title" xml:space="preserve">Local changes ({0})</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Add" xml:space="preserve">Add</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.AddTip" xml:space="preserve">Schedule the selected path for addition. Directories are added without their contents.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Remove" xml:space="preserve">Remove (keep local)</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.RemoveTip" xml:space="preserve">Schedule removal from version control while keeping local files.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Undo" xml:space="preserve">Undo</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.UndoTip" xml:space="preserve">Undo the selected addition or removal before commit. Keep local files and edits.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Undone" xml:space="preserve">Undid the addition or removal of “{0}”. Local contents were kept.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.UndoFailed" xml:space="preserve">Could not undo “{0}”. Check the refreshed status before retrying.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.RemoveConfirm" xml:space="preserve">Schedule “{0}” for removal from version control? For directories, this includes versioned contents. Local files and edits will be kept. The repository changes only when you commit.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Applying" xml:space="preserve">Applying local action…</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Added" xml:space="preserve">Scheduled “{0}” for addition. Directory contents must be added separately.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Removed" xml:space="preserve">Scheduled “{0}” for removal. Local files were kept.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.AddFailed" xml:space="preserve">Could not add “{0}”. Check the refreshed status before retrying.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.RemoveFailed" xml:space="preserve">Could not remove “{0}”. Check the refreshed status before retrying.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.ActionCancelled" xml:space="preserve">Local action canceled. Some scheduling may already have changed; check the refreshed status.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.Clean" xml:space="preserve">No local changes.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.Loading" xml:space="preserve">Loading local changes…</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.Cancelled" xml:space="preserve">Loading local changes canceled.</x:String>

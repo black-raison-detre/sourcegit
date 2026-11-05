@@ -1145,6 +1145,21 @@
   <x:String x:Key="Text.SVN.Diff.Special" xml:space="preserve">此路径包含 SVN 特殊文件，无法显示文本差异。</x:String>
   <x:String x:Key="Text.SVN.Diff.Splitter" xml:space="preserve">调整变更路径和文件差异窗格大小</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.Title" xml:space="preserve">本地变更（{0}）</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Add" xml:space="preserve">添加</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.AddTip" xml:space="preserve">将所选路径计划为添加。添加目录时不包含其内容。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Remove" xml:space="preserve">移除（保留本地文件）</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.RemoveTip" xml:space="preserve">计划从版本控制中移除所选路径，同时保留本地文件。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Undo" xml:space="preserve">撤销</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.UndoTip" xml:space="preserve">提交前撤销所选路径的添加或移除计划，保留本地文件及编辑。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Undone" xml:space="preserve">已撤销“{0}”的添加或移除计划，本地内容已保留。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.UndoFailed" xml:space="preserve">无法撤销“{0}”。请检查刷新后的状态再重试。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.RemoveConfirm" xml:space="preserve">将“{0}”计划为从版本控制中移除？移除目录时包含其受版本控制的内容。本地文件及编辑将被保留，只有提交后才会变更仓库。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Applying" xml:space="preserve">正在执行本地操作…</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Added" xml:space="preserve">已将“{0}”计划为添加。目录内容需要单独添加。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.Removed" xml:space="preserve">已将“{0}”计划为移除，本地文件已保留。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.AddFailed" xml:space="preserve">无法添加“{0}”。请检查刷新后的状态再重试。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.RemoveFailed" xml:space="preserve">无法移除“{0}”。请检查刷新后的状态再重试。</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.ActionCancelled" xml:space="preserve">已取消本地操作。部分计划状态可能已变更，请检查刷新后的状态。</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.Clean" xml:space="preserve">没有本地变更。</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.Loading" xml:space="preserve">正在加载本地变更…</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.Cancelled" xml:space="preserve">已取消加载本地变更。</x:String>

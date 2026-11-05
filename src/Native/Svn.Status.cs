@@ -69,7 +69,8 @@ namespace SourceGit.Native
             string executable,
             string configDirectory,
             string workingCopyPath,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool includeExternals = false)
         {
             var workingCopy = await GetWorkingCopyAsync(executable, configDirectory, workingCopyPath, cancellationToken).ConfigureAwait(false);
             if (workingCopy.Status != "Ready")
@@ -119,14 +120,16 @@ namespace SourceGit.Native
                         return new ResolvedStatus(new StatusResult("Failed", Details: "SVN returned a status entry without a working-copy status."), root);
                     if (!TryReadOptionalBool(wcStatus, "file-external", out var isExternal))
                         return new ResolvedStatus(new StatusResult("Failed", Details: "SVN returned an invalid file-external status flag."), root);
-                    if (isExternal || wcStatus.GetAttribute("item") == "external")
+                    var isExternalEntry = isExternal || wcStatus.GetAttribute("item") == "external";
+                    if (isExternalEntry && !includeExternals)
                         continue;
                     if (!TryGetWorkingCopyStatus(root, entry, out var parsed, out var parseError))
                         return new ResolvedStatus(new StatusResult("Failed", Details: parseError), root);
 
                     if (parsed.Item == "normal" && parsed.Properties is "none" or "normal" &&
                         !parsed.IsCopied && !parsed.IsSwitched && !parsed.IsTreeConflicted &&
-                        string.IsNullOrEmpty(parsed.MovedFrom) && string.IsNullOrEmpty(parsed.MovedTo))
+                        string.IsNullOrEmpty(parsed.MovedFrom) && string.IsNullOrEmpty(parsed.MovedTo) &&
+                        !(includeExternals && (isExternalEntry || parsed.IsFileExternal)))
                         continue;
 
                     entries.Add(parsed);

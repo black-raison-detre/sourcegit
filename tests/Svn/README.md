@@ -8,7 +8,7 @@ dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj
 
 The project has no package dependencies. It compiles the production `Svn.cs`,
 `Svn.Connection.cs`, `Svn.History.cs`, `Svn.ChangedPaths.cs`,
-`Svn.FileDiff.cs`, and `Svn.Status.cs` files directly and uses its own apphost as a fake SVN CLI, so
+`Svn.FileDiff.cs`, `Svn.Status.cs`, `Svn.Actions.cs`, and `Svn.Undo.cs` files directly and uses its own apphost as a fake SVN CLI, so
 the focused checks do not need Subversion installed.
 
 The fake-client checks cover working-copy root discovery and Git precedence,
@@ -33,6 +33,19 @@ checks verify bounded internal diffs, special-character paths, property-only
 output, copied additions, binary and unversioned content, missing-file BASE
 snapshots, symlink boundary checks, FIFO rejection, cancellation, and that the
 commands do not request remote status or revisions.
+
+Local action checks cover conservative Add/Remove eligibility, fresh status
+revalidation, option-safe paths with spaces, Unicode, `@`, and leading hyphens,
+non-recursive directory adds, local-content preservation for modified and
+missing removals, and rejection of stale, property-edited, traversing, symlinked,
+and nested-working-copy selections. Undo checks cover plain added/deleted rows,
+automatic-property metadata on additions, missing deleted paths, safe revert
+arguments, and preservation of retained bytes when a failed or cancelled fake
+revert first recreates the target. Recovery checks verify that unexpected
+temporary data is retained with an error, and that a post-revert symlink leaves
+the original bytes and recovery manifest available with their paths reported for
+failure and cancellation. Symlink-specific checks run where the test filesystem
+supports symlinks. Fake command cancellation checks also verify child termination.
 
 Local text diffs use SVN's internal diff engine and bounded UTF-8 patches;
 invalid UTF-8 or NUL-containing patches are reported as binary. Whitespace
@@ -77,7 +90,18 @@ output as bounded bytes and disable keyword expansion; SVN still applies
 client's EOL form rather than the repository's stored line-ending bytes. No
 user Subversion cache or credentials are read or modified.
 
-The working-copy integration checks stop the local `svnserve` before reading
-status or local diffs. They verify an existing local edit, an unversioned file,
-and a missing tracked file without contacting the server or changing working-copy
+Integration mode also creates a separate temporary `file://` repository and
+working copy to exercise actual local adds and deletes. It checks Unicode and
+`@` paths, configured auto-properties, depth-empty directory adds, preservation
+of modified and nested file bytes, removal of missing files and directories, and
+directory-removal refusal when a missing child has modified properties or is a
+file external. It also exercises Undo Add/Remove against the real local
+repository, including an added child beneath an added directory, a retained
+modified directory with an unversioned child, a nested symlink when supported,
+and restoring the BASE file after undoing a missing-file deletion. Action
+revalidation reads external boundary rows while the normal working-copy status
+view continues to omit them. The
+working-copy read-only checks stop the local `svnserve` before reading status or
+local diffs; they verify an existing local edit, an unversioned file, and a
+missing tracked file without contacting the server or changing working-copy
 contents or status.

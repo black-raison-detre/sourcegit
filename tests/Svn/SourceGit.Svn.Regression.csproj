@@ -16,5 +16,7 @@
     <Compile Include="../../src/Native/Svn.Cache.cs" Link="Production/Svn.Cache.cs" />
     <Compile Include="../../src/Native/Svn.FileDiff.cs" Link="Production/Svn.FileDiff.cs" />
     <Compile Include="../../src/Native/Svn.Status.cs" Link="Production/Svn.Status.cs" />
+    <Compile Include="../../src/Native/Svn.Actions.cs" Link="Production/Svn.Actions.cs" />
+    <Compile Include="../../src/Native/Svn.Undo.cs" Link="Production/Svn.Undo.cs" />
   </ItemGroup>
 </Project>

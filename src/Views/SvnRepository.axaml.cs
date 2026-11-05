@@ -33,6 +33,30 @@ namespace SourceGit.Views
             e.Handled = true;
         }
 
+        private async void OnAddWorkingCopy(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                await repo.WorkingCopy.AddAsync();
+
+            e.Handled = true;
+        }
+
+        private async void OnRemoveWorkingCopy(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                await repo.WorkingCopy.RemoveAsync(message => App.AskConfirmAsync(message));
+
+            e.Handled = true;
+        }
+
+        private async void OnUndoWorkingCopy(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                await repo.WorkingCopy.UndoAsync();
+
+            e.Handled = true;
+        }
+
         private async void OnRetryWorkingCopyDiff(object sender, RoutedEventArgs e)
         {
             if (DataContext is ViewModels.SvnRepository repo)

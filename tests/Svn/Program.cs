@@ -19,6 +19,11 @@ internal static class Program
     private const string ScenarioVariable = "SOURCEGIT_SVN_REGRESSION_SCENARIO";
     private const string InvocationVariable = "SOURCEGIT_SVN_REGRESSION_INVOCATIONS";
     private const string WorkingCopyRootVariable = "SOURCEGIT_SVN_REGRESSION_WC_ROOT";
+    private const string ActionPathVariable = "SOURCEGIT_SVN_REGRESSION_ACTION_PATH";
+    private const string ActionItemVariable = "SOURCEGIT_SVN_REGRESSION_ACTION_ITEM";
+    private const string ActionPropertiesVariable = "SOURCEGIT_SVN_REGRESSION_ACTION_PROPERTIES";
+    private const string ActionKindVariable = "SOURCEGIT_SVN_REGRESSION_ACTION_KIND";
+    private const string UndoSentinelVariable = "SOURCEGIT_SVN_REGRESSION_UNDO_SENTINEL";
     private const string RepositoryUuidVariable = "SOURCEGIT_SVN_REGRESSION_REPOSITORY_UUID";
     private const string BaseRevisionVariable = "SOURCEGIT_SVN_REGRESSION_BASE_REVISION";
     private static readonly string[] s_knownFixturePasswords =
@@ -67,7 +72,7 @@ internal static class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "add" or "delete" or "revert" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -85,6 +90,50 @@ internal static class Program
             ? await Console.In.ReadLineAsync().ConfigureAwait(false)
             : null;
         await RecordInvocationAsync(invocationPath, args, input).ConfigureAwait(false);
+
+        if ((args[0] is "add" or "delete" or "revert") && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
+        {
+            if (args[0] == "revert" && scenario.StartsWith("wc_action_undo_", StringComparison.Ordinal))
+            {
+                var target = args[^1];
+                if (target.EndsWith("@", StringComparison.Ordinal))
+                    target = target[..^1];
+
+                if (scenario is "wc_action_undo_pristine_fail" or "wc_action_undo_pristine_slow" or "wc_action_undo_cleanup_fail")
+                    await File.WriteAllTextAsync(target, "fake pristine replacement\n").ConfigureAwait(false);
+                if (scenario == "wc_action_undo_cleanup_fail")
+                {
+                    var recovery = Directory.GetDirectories(Path.GetDirectoryName(target)!, ".sourcegit-svn-undo-*").Single();
+                    await File.WriteAllTextAsync(Path.Combine(recovery, "unrecognized-recovery-data.txt"), "preserve this data\n").ConfigureAwait(false);
+                    return 0;
+                }
+                if (scenario is "wc_action_undo_symlink_fail" or "wc_action_undo_symlink_slow")
+                {
+                    var sentinel = Environment.GetEnvironmentVariable(UndoSentinelVariable) ?? string.Empty;
+                    File.CreateSymbolicLink(target, sentinel);
+                    if (scenario == "wc_action_undo_symlink_slow")
+                        await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+                    Console.Error.WriteLine("svn: E200000: synthetic revert failure after replacing the target with a symlink");
+                    return 1;
+                }
+                if (scenario == "wc_action_undo_pristine_slow")
+                    await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+                if (scenario == "wc_action_undo_pristine_fail")
+                {
+                    Console.Error.WriteLine("svn: E200000: synthetic revert failure after writing pristine bytes");
+                    return 1;
+                }
+            }
+
+            if (scenario == "wc_action_slow")
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+            if (scenario == "wc_action_fail")
+            {
+                Console.Error.WriteLine("svn: E200000: synthetic working-copy action failure");
+                return 1;
+            }
+            return 0;
+        }
 
         if (args.Contains("--version", StringComparer.Ordinal))
         {
@@ -109,6 +158,12 @@ internal static class Program
         }
 
         if (args[0] == "info" && scenario.StartsWith("wc_status_", StringComparison.Ordinal))
+        {
+            WriteWorkingCopyInfo();
+            return 0;
+        }
+
+        if (args[0] == "info" && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
         {
             WriteWorkingCopyInfo();
             return 0;
@@ -150,6 +205,12 @@ internal static class Program
             }
 
             WriteWorkingCopyStatus();
+            return 0;
+        }
+
+        if (args[0] == "status" && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
+        {
+            WriteWorkingCopyActionStatus();
             return 0;
         }
 
@@ -522,6 +583,20 @@ internal static class Program
             "</target><changelist name=\"pending work\">" +
             Entry("changelist @ file.txt", "item=\"modified\" revision=\"12\" props=\"modified\"") +
             "</changelist></status>");
+    }
+
+    private static void WriteWorkingCopyActionStatus()
+    {
+        var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+        var target = Environment.GetEnvironmentVariable(ActionPathVariable) ?? string.Empty;
+        var item = Environment.GetEnvironmentVariable(ActionItemVariable) ?? "unversioned";
+        var properties = Environment.GetEnvironmentVariable(ActionPropertiesVariable) ?? "none";
+        var kind = Environment.GetEnvironmentVariable(ActionKindVariable) ?? "unknown";
+        var kindAttribute = kind == "unknown" ? string.Empty : $" kind=\"{System.Security.SecurityElement.Escape(kind)}\"";
+        var externalChild = Environment.GetEnvironmentVariable(ScenarioVariable) == "wc_action_external"
+            ? $"<entry path=\"{System.Security.SecurityElement.Escape(Path.Combine(target, "linked.txt"))}\" kind=\"file\"><wc-status item=\"missing\" revision=\"12\" props=\"none\" file-external=\"true\"/></entry>"
+            : string.Empty;
+        Console.WriteLine($"<status><target path=\"{System.Security.SecurityElement.Escape(root)}\"><entry path=\"{System.Security.SecurityElement.Escape(target)}\"{kindAttribute}><wc-status item=\"{System.Security.SecurityElement.Escape(item)}\" revision=\"12\" props=\"{System.Security.SecurityElement.Escape(properties)}\"/></entry>{externalChild}</target></status>");
     }
 
     private static bool HasWorkingCopyLinkFixtures(string root)
@@ -1564,6 +1639,335 @@ internal static class Program
             Equal(Path.GetFullPath(statusRoot) + "@", statusCall.Arguments[^1]);
         }).ConfigureAwait(false);
 
+        await CheckAsync("working-copy add/remove eligibility excludes stale, conflicting, and unsafe entries", async () =>
+        {
+            True(Svn.CanAdd(new Svn.SvnWorkingCopyEntry("new.txt", "unversioned", "none", Kind: "file")), "unversioned file was not addable");
+            True(Svn.CanAdd(new Svn.SvnWorkingCopyEntry("new directory", "unversioned", "none", Kind: "dir")), "unversioned directory was not addable");
+            True(!Svn.CanAdd(null), "null add entry was accepted");
+            True(!Svn.CanAdd(new Svn.SvnWorkingCopyEntry(".", "unversioned", "none", Kind: "dir")), "working-copy root was addable");
+            True(!Svn.CanAdd(new Svn.SvnWorkingCopyEntry("../outside.txt", "unversioned", "none", Kind: "file")), "traversal add entry was accepted");
+            True(!Svn.CanAdd(new Svn.SvnWorkingCopyEntry("new.txt", "modified", "none", Kind: "file")), "versioned file was addable");
+
+            True(Svn.CanRemove(new Svn.SvnWorkingCopyEntry("modified.txt", "modified", "none", Kind: "file")), "text-modified file was not removable");
+            True(Svn.CanRemove(new Svn.SvnWorkingCopyEntry("missing.txt", "missing", "none", Kind: "unknown")), "missing file with unknown kind was not removable");
+            True(!Svn.CanRemove(null), "null remove entry was accepted");
+            True(!Svn.CanRemove(new Svn.SvnWorkingCopyEntry("property.txt", "modified", "modified", Kind: "file")), "property-modified file was removable");
+            True(!Svn.CanRemove(new Svn.SvnWorkingCopyEntry("copy.txt", "added", "none", IsCopied: true, Kind: "file")), "copied addition was removable");
+            True(!Svn.CanRemove(new Svn.SvnWorkingCopyEntry("conflict.txt", "modified", "none", IsTreeConflicted: true, Kind: "file")), "tree-conflicted file was removable");
+
+            True(Svn.CanUndo(new Svn.SvnWorkingCopyEntry("auto-prop.txt", "added", "modified", Kind: "file")), "auto-property edits disabled undo for an added file");
+            True(Svn.CanUndo(new Svn.SvnWorkingCopyEntry("missing.txt", "deleted", "none", Kind: "unknown")), "missing deleted path with unknown kind was not undoable");
+            True(!Svn.CanUndo(null), "null undo entry was accepted");
+            True(!Svn.CanUndo(new Svn.SvnWorkingCopyEntry("edited.txt", "modified", "none", Kind: "file")), "tracked text edit was undoable");
+            True(!Svn.CanUndo(new Svn.SvnWorkingCopyEntry("property.txt", "deleted", "modified", Kind: "file")), "property-edited deletion was undoable");
+            True(!Svn.CanUndo(new Svn.SvnWorkingCopyEntry("copy.txt", "added", "none", IsCopied: true, Kind: "file")), "copied addition was undoable");
+            True(!Svn.CanUndo(new Svn.SvnWorkingCopyEntry("move.txt", "deleted", "none", MovedTo: "new.txt", Kind: "file")), "moved deletion was undoable");
+            True(!Svn.CanUndo(new Svn.SvnWorkingCopyEntry(".svn/wc.db", "deleted", "none", Kind: "file")), "administrative path was undoable");
+            True(!Svn.CanUndo(new Svn.SvnWorkingCopyEntry(".", "added", "none", Kind: "dir")), "working-copy root was undoable");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local add/remove commands revalidate status and safely frame special paths", async () =>
+        {
+            var addName = "-- option @ 文档🌱.txt";
+            var addPath = Path.Combine(statusRoot, addName);
+            const string addContents = "unversioned bytes stay local\n";
+            await File.WriteAllTextAsync(addPath, addContents).ConfigureAwait(false);
+            var invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                addName, "unversioned", "none", "file");
+            var added = await Svn.AddAsync(executable, config, workingCopyPath, addName).ConfigureAwait(false);
+            Equal("Ready", added.Status);
+            var addCalls = ReadInvocations(invocations);
+            Equal("info", addCalls[0].Arguments[0]);
+            Equal("status", addCalls[1].Arguments[0]);
+            var addCall = addCalls[2];
+            Equal("add", addCall.Arguments[0]);
+            True(addCall.Arguments.Contains("--depth", StringComparer.Ordinal), "add did not use explicit depth");
+            Equal("empty", ArgumentAfter(addCall, "--depth"));
+            True(addCall.Arguments.Contains("--non-interactive", StringComparer.Ordinal), "add was not non-interactive");
+            True(addCall.Arguments.Contains("--no-auth-cache", StringComparer.Ordinal), "add could persist auth credentials");
+            AssertConfigDirectory(addCall, config);
+            True(!addCall.Arguments.Contains("--force", StringComparer.Ordinal), "add forced recursive or ignored paths");
+            var addSeparator = Array.IndexOf(addCall.Arguments, "--");
+            True(addSeparator >= 0, "add lacks an option terminator");
+            Equal(Path.GetFullPath(addPath) + "@", addCall.Arguments[addSeparator + 1]);
+            Equal(addSeparator + 2, addCall.Arguments.Length);
+            Equal(addContents, await File.ReadAllTextAsync(addPath).ConfigureAwait(false));
+
+            var directoryRelative = "unversioned directory";
+            var childPath = Path.Combine(statusRoot, directoryRelative, "child @ file.txt");
+            await File.WriteAllTextAsync(childPath, "directory child stays unversioned\n").ConfigureAwait(false);
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                directoryRelative, "unversioned", "none", "dir");
+            var addedDirectory = await Svn.AddAsync(executable, config, workingCopyPath, directoryRelative).ConfigureAwait(false);
+            Equal("Ready", addedDirectory.Status);
+            addCall = ReadInvocations(invocations)[2];
+            Equal("empty", ArgumentAfter(addCall, "--depth"));
+            Equal("directory child stays unversioned\n", await File.ReadAllTextAsync(childPath).ConfigureAwait(false));
+
+            var modifiedPath = Path.Combine(statusRoot, "modified @ file.txt");
+            var modifiedBytes = await File.ReadAllBytesAsync(modifiedPath).ConfigureAwait(false);
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                "modified @ file.txt", "modified", "none", "file");
+            var removed = await Svn.RemoveAsync(executable, config, workingCopyPath, "modified @ file.txt").ConfigureAwait(false);
+            Equal("Ready", removed.Status);
+            var removeCall = ReadInvocations(invocations)[2];
+            Equal("delete", removeCall.Arguments[0]);
+            True(removeCall.Arguments.Contains("--keep-local", StringComparer.Ordinal), "delete did not retain local contents");
+            True(!removeCall.Arguments.Contains("--force", StringComparer.Ordinal), "delete forced through unrelated obstructions");
+            True(removeCall.Arguments.Contains("--non-interactive", StringComparer.Ordinal), "delete was not non-interactive");
+            True(removeCall.Arguments.Contains("--no-auth-cache", StringComparer.Ordinal), "delete could persist auth credentials");
+            AssertConfigDirectory(removeCall, config);
+            var removeSeparator = Array.IndexOf(removeCall.Arguments, "--");
+            True(removeSeparator >= 0, "delete lacks an option terminator");
+            Equal(Path.GetFullPath(modifiedPath) + "@", removeCall.Arguments[removeSeparator + 1]);
+            Equal(removeSeparator + 2, removeCall.Arguments.Length);
+            SequenceEqual(modifiedBytes, await File.ReadAllBytesAsync(modifiedPath).ConfigureAwait(false));
+
+            const string missingRelative = "missing @ removed.txt";
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                missingRelative, "missing", "none", "unknown");
+            var missing = await Svn.RemoveAsync(executable, config, workingCopyPath, missingRelative).ConfigureAwait(false);
+            Equal("Ready", missing.Status);
+            True(!File.Exists(Path.Combine(statusRoot, missingRelative)), "removing a missing path recreated local content");
+            True(ReadInvocations(invocations)[2].Arguments.Contains("--keep-local", StringComparer.Ordinal), "missing path did not use keep-local semantics");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local undo uses safe revert arguments and preserves added and deleted contents", async () =>
+        {
+            var addedName = "unversioned @ file.txt";
+            var addedPath = Path.Combine(statusRoot, addedName);
+            var addedBytes = await File.ReadAllBytesAsync(addedPath).ConfigureAwait(false);
+            var invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                addedName, "added", "modified", "file");
+            var undoneAdd = await Svn.UndoAsync(executable, config, workingCopyPath, addedName).ConfigureAwait(false);
+            Equal("Ready", undoneAdd.Status);
+            var revertCall = ReadInvocations(invocations)[2];
+            Equal("revert", revertCall.Arguments[0]);
+            Equal("infinity", ArgumentAfter(revertCall, "--depth"));
+            True(!revertCall.Arguments.Contains("--remove-added", StringComparer.Ordinal), "undo add requested removal of local contents");
+            True(revertCall.Arguments.Contains("--non-interactive", StringComparer.Ordinal), "undo was not non-interactive");
+            True(revertCall.Arguments.Contains("--no-auth-cache", StringComparer.Ordinal), "undo could persist auth credentials");
+            AssertConfigDirectory(revertCall, config);
+            var separator = Array.IndexOf(revertCall.Arguments, "--");
+            True(separator >= 0, "undo lacks an option terminator");
+            Equal(Path.GetFullPath(addedPath) + "@", revertCall.Arguments[separator + 1]);
+            Equal(separator + 2, revertCall.Arguments.Length);
+            SequenceEqual(addedBytes, await File.ReadAllBytesAsync(addedPath).ConfigureAwait(false));
+
+            var deletedName = "modified @ file.txt";
+            var deletedPath = Path.Combine(statusRoot, deletedName);
+            var deletedBytes = await File.ReadAllBytesAsync(deletedPath).ConfigureAwait(false);
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                deletedName, "deleted", "none", "file");
+            var undoneDelete = await Svn.UndoAsync(executable, config, workingCopyPath, deletedName).ConfigureAwait(false);
+            Equal("Ready", undoneDelete.Status);
+            SequenceEqual(deletedBytes, await File.ReadAllBytesAsync(deletedPath).ConfigureAwait(false));
+            True(!Directory.EnumerateDirectories(statusRoot, ".sourcegit-svn-undo-*").Any(), "successful undo left its recovery directory behind");
+            Equal("revert", ReadInvocations(invocations)[2].Arguments[0]);
+
+            const string missingName = "missing @ removed.txt";
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                missingName, "deleted", "none", "unknown");
+            var undoneMissing = await Svn.UndoAsync(executable, config, workingCopyPath, missingName).ConfigureAwait(false);
+            Equal("Ready", undoneMissing.Status);
+            Equal("revert", ReadInvocations(invocations)[2].Arguments[0]);
+            True(!Directory.EnumerateDirectories(statusRoot, ".sourcegit-svn-undo-*").Any(), "missing-path undo created a recovery directory");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local undo recovers a post-revert replacement after command failure and cancellation", async () =>
+        {
+            var missingDirectory = "missing external parent";
+            var invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_external", workingCopyPath,
+                missingDirectory, "deleted", "none", "unknown");
+            var external = await Svn.UndoAsync(executable, config, workingCopyPath, missingDirectory).ConfigureAwait(false);
+            Equal("NotEligible", external.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "revert"), "external descendant launched svn revert");
+
+            var deletedName = "modified @ file.txt";
+            var deletedPath = Path.Combine(statusRoot, deletedName);
+            var originalBytes = await File.ReadAllBytesAsync(deletedPath).ConfigureAwait(false);
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_undo_pristine_fail", workingCopyPath,
+                deletedName, "deleted", "none", "file");
+            var failed = await Svn.UndoAsync(executable, config, workingCopyPath, deletedName).ConfigureAwait(false);
+            Equal("Failed", failed.Status);
+            True(failed.Details.Contains("original local contents were restored", StringComparison.Ordinal), "undo failure omitted the restored-content result");
+            SequenceEqual(originalBytes, await File.ReadAllBytesAsync(deletedPath).ConfigureAwait(false));
+            True(!Directory.EnumerateDirectories(statusRoot, ".sourcegit-svn-undo-*").Any(), "failed undo left its recovery directory behind");
+
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_undo_pristine_slow", workingCopyPath,
+                deletedName, "deleted", "none", "file");
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(1200));
+            var cancelled = false;
+            try
+            {
+                await Svn.UndoAsync(executable, config, workingCopyPath, deletedName, cancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = true;
+            }
+            True(cancelled, "undo cancellation was converted to a result");
+            SequenceEqual(originalBytes, await File.ReadAllBytesAsync(deletedPath).ConfigureAwait(false));
+            True(!Directory.EnumerateDirectories(statusRoot, ".sourcegit-svn-undo-*").Any(), "cancelled undo left its recovery directory behind");
+            var revertCall = ReadInvocations(invocations).Last(call => call.Arguments[0] == "revert");
+            var waitUntil = Stopwatch.StartNew();
+            while (IsProcessRunning(revertCall.ProcessId) && waitUntil.Elapsed < TimeSpan.FromSeconds(2))
+                await Task.Delay(20).ConfigureAwait(false);
+            True(!IsProcessRunning(revertCall.ProcessId), "cancelled SVN revert process remained alive");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local undo reports recovery files when restoration is refused", async () =>
+        {
+            var invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_undo_cleanup_fail", workingCopyPath,
+                "modified @ file.txt", "deleted", "none", "file");
+            var modifiedPath = Path.Combine(statusRoot, "modified @ file.txt");
+            var originalBytes = await File.ReadAllBytesAsync(modifiedPath).ConfigureAwait(false);
+            var cleanupFailure = await Svn.UndoAsync(executable, config, workingCopyPath, "modified @ file.txt").ConfigureAwait(false);
+            Equal("Failed", cleanupFailure.Status);
+            SequenceEqual(originalBytes, await File.ReadAllBytesAsync(modifiedPath).ConfigureAwait(false));
+            var cleanupDirectory = Directory.GetDirectories(statusRoot, ".sourcegit-svn-undo-*").Single();
+            Equal("preserve this data\n", await File.ReadAllTextAsync(Path.Combine(cleanupDirectory, "unrecognized-recovery-data.txt")).ConfigureAwait(false));
+            True(cleanupFailure.Details.Contains(cleanupDirectory, StringComparison.Ordinal), "cleanup failure omitted its recovery directory");
+
+            if (!s_workingCopyLinksAvailable)
+                return;
+
+            var sentinel = Path.Combine(temp.Path, "undo external sentinel.txt");
+            await File.WriteAllTextAsync(sentinel, "outside bytes stay intact\n").ConfigureAwait(false);
+            Environment.SetEnvironmentVariable(UndoSentinelVariable, sentinel);
+            try
+            {
+                var refusedPath = Path.Combine(statusRoot, "undo refused @ file.txt");
+                var refusedBytes = Encoding.UTF8.GetBytes("edited bytes need recovery\n");
+                await File.WriteAllBytesAsync(refusedPath, refusedBytes).ConfigureAwait(false);
+                invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_undo_symlink_fail", workingCopyPath,
+                    "undo refused @ file.txt", "deleted", "none", "file");
+                var refused = await Svn.UndoAsync(executable, config, workingCopyPath, "undo refused @ file.txt").ConfigureAwait(false);
+                Equal("Failed", refused.Status);
+                var refusedRecovery = Directory.GetDirectories(statusRoot, ".sourcegit-svn-undo-*")
+                    .Single(path => File.Exists(Path.Combine(path, "original")) &&
+                        File.ReadAllBytes(Path.Combine(path, "original")).SequenceEqual(refusedBytes));
+                True(File.Exists(Path.Combine(refusedRecovery, "RECOVERY.txt")), "restore refusal lost its recovery manifest");
+                True(refused.Details.Contains(refusedRecovery, StringComparison.Ordinal) &&
+                    refused.Details.Contains("RECOVERY.txt", StringComparison.Ordinal), "restore failure omitted recovery instructions");
+                Equal("outside bytes stay intact\n", await File.ReadAllTextAsync(sentinel).ConfigureAwait(false));
+
+                var cancelledPath = Path.Combine(statusRoot, "undo cancelled @ file.txt");
+                var cancelledBytes = Encoding.UTF8.GetBytes("cancelled bytes need recovery\n");
+                await File.WriteAllBytesAsync(cancelledPath, cancelledBytes).ConfigureAwait(false);
+                invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_undo_symlink_slow", workingCopyPath,
+                    "undo cancelled @ file.txt", "deleted", "none", "file");
+                using var cancelRecovery = new CancellationTokenSource(TimeSpan.FromMilliseconds(1200));
+                OperationCanceledException cancellationError = null;
+                try
+                {
+                    await Svn.UndoAsync(executable, config, workingCopyPath, "undo cancelled @ file.txt", cancelRecovery.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException ex)
+                {
+                    cancellationError = ex;
+                }
+                True(cancellationError != null, "cancelled undo did not throw cancellation");
+                var cancelledRecovery = Directory.GetDirectories(statusRoot, ".sourcegit-svn-undo-*")
+                    .Single(path => File.Exists(Path.Combine(path, "original")) &&
+                        File.ReadAllBytes(Path.Combine(path, "original")).SequenceEqual(cancelledBytes));
+                True(File.Exists(Path.Combine(cancelledRecovery, "RECOVERY.txt")), "cancelled restore refusal lost its recovery manifest");
+                True(cancellationError.Message.Contains(cancelledRecovery, StringComparison.Ordinal) &&
+                    cancellationError.Message.Contains("RECOVERY.txt", StringComparison.Ordinal), "cancellation omitted its recovery location");
+                Equal("outside bytes stay intact\n", await File.ReadAllTextAsync(sentinel).ConfigureAwait(false));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(UndoSentinelVariable, null);
+            }
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local add/remove refuse stale, conflicting, symlinked, and nested-working-copy paths", async () =>
+        {
+            var invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                "unversioned @ file.txt", "unversioned", "none", "file");
+            var stale = await Svn.AddAsync(executable, config, workingCopyPath, "stale @ file.txt").ConfigureAwait(false);
+            Equal("PathNotChanged", stale.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "add"), "stale selection launched svn add");
+
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                "modified @ file.txt", "modified", "modified", "file");
+            var propertyEdit = await Svn.RemoveAsync(executable, config, workingCopyPath, "modified @ file.txt").ConfigureAwait(false);
+            Equal("NotEligible", propertyEdit.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "delete"), "property edit launched svn delete");
+
+            var traversalPath = "../outside.txt";
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                "unversioned @ file.txt", "unversioned", "none", "file");
+            var traversal = await Svn.AddAsync(executable, config, workingCopyPath, traversalPath).ConfigureAwait(false);
+            Equal("PathNotChanged", traversal.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "add"), "traversal launched svn add");
+
+            if (s_workingCopyLinksAvailable)
+            {
+                invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                    Path.Combine("escape", "outside.txt"), "unversioned", "none", "file");
+                var escape = await Svn.AddAsync(executable, config, workingCopyPath,
+                    Path.Combine("escape", "outside.txt")).ConfigureAwait(false);
+                Equal("UnsafePath", escape.Status);
+                True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "add"), "symlinked ancestor launched svn add");
+            }
+
+            var nestedRoot = Path.Combine(statusRoot, "directory change", "nested", ".svn");
+            Directory.CreateDirectory(nestedRoot);
+            try
+            {
+                invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                    "directory change", "modified", "none", "dir");
+                var nested = await Svn.RemoveAsync(executable, config, workingCopyPath, "directory change").ConfigureAwait(false);
+                Equal("UnsafePath", nested.Status);
+                True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "delete"), "nested working copy launched svn delete");
+            }
+            finally
+            {
+                Directory.Delete(Path.Combine(statusRoot, "directory change", "nested"), recursive: true);
+            }
+
+            var externalParent = "missing external parent";
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_external", workingCopyPath,
+                externalParent, "missing", "none", "dir");
+            var external = await Svn.RemoveAsync(executable, config, workingCopyPath, externalParent).ConfigureAwait(false);
+            Equal("NotEligible", external.Status);
+            var externalCalls = ReadInvocations(invocations);
+            True(!externalCalls.Any(call => call.Arguments[0] == "delete"), "file external descendant launched svn delete");
+            var actionStatusCall = externalCalls.Single(call => call.Arguments[0] == "status");
+            True(actionStatusCall.Arguments.Contains("--ignore-externals", StringComparer.Ordinal),
+                "action status changed the local status scope while checking externals");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("local action failures and cancellation preserve diagnostics and terminate SVN", async () =>
+        {
+            var invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_fail", workingCopyPath,
+                "unversioned @ file.txt", "unversioned", "none", "file");
+            var failed = await Svn.AddAsync(executable, config, workingCopyPath, "unversioned @ file.txt").ConfigureAwait(false);
+            Equal("Failed", failed.Status);
+            True(failed.Details.Contains("partially changed", StringComparison.Ordinal), "failed add did not report possible partial scheduling");
+
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_slow", workingCopyPath,
+                "unversioned @ file.txt", "unversioned", "none", "file");
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(700));
+            var cancelled = false;
+            try
+            {
+                await Svn.AddAsync(executable, config, workingCopyPath, "unversioned @ file.txt", cancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = true;
+            }
+            True(cancelled, "action cancellation was converted to a result");
+            var addCall = ReadInvocations(invocations).Last(call => call.Arguments[0] == "add");
+            var waitUntil = Stopwatch.StartNew();
+            while (IsProcessRunning(addCall.ProcessId) && waitUntil.Elapsed < TimeSpan.FromSeconds(2))
+                await Task.Delay(20).ConfigureAwait(false);
+            True(!IsProcessRunning(addCall.ProcessId), "cancelled SVN add process remained alive");
+        }).ConfigureAwait(false);
+
         await CheckAsync("local text and property diffs use bounded internal commands and native copied-add semantics", async () =>
         {
             var invocations = PrepareHistoryScenario(temp.Path, "wc_status_main", workingCopyPath);
@@ -1831,6 +2235,8 @@ internal static class Program
                 "[auth]\npassword-stores =\nstore-passwords = no\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
             await File.WriteAllTextAsync(Path.Combine(isolatedConfig, "servers"),
                 "[global]\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
+
+            await RunWorkingCopyActionIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
 
             var publicUrl = $"svn://127.0.0.1:{port}/public";
             var privateUrl = $"svn://127.0.0.1:{port}/private";
@@ -2142,6 +2548,199 @@ internal static class Program
         }
     }
 
+    private static async Task RunWorkingCopyActionIntegrationAsync(
+        string svn,
+        string svnadmin,
+        string tempDirectory)
+    {
+        var root = Path.Combine(tempDirectory, "working-copy-actions");
+        var repository = Path.Combine(root, "repository");
+        var seed = Path.Combine(root, "seed");
+        var workingCopy = Path.Combine(root, "working copy @ local");
+        var config = Path.Combine(root, "config");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(config);
+        Directory.CreateDirectory(Path.Combine(seed, "nested @ folder"));
+        Directory.CreateDirectory(Path.Combine(seed, "retained directory", "nested"));
+        Directory.CreateDirectory(Path.Combine(seed, "safe missing directory", "nested"));
+        Directory.CreateDirectory(Path.Combine(seed, "property missing directory", "nested"));
+        Directory.CreateDirectory(Path.Combine(seed, "external missing directory"));
+        await File.WriteAllTextAsync(Path.Combine(seed, "modified @ file.txt"), "base contents\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "missing @ file.txt"), "missing base contents\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "nested @ folder", "retained @ data.txt"), "nested base contents\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "retained directory", "nested", "data.txt"), "directory contents stay local\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "safe missing directory", "nested", "data.txt"), "missing directory bytes stay local\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "property missing directory", "nested", "data.txt"), "property-edited child bytes stay local\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "external missing directory", "placeholder.txt"), "file external holder\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "external-source.txt"), "external file bytes\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(config, "config"),
+            "[miscellany]\nenable-auto-props = yes\n[auto-props]\n*.txt = svn:eol-style=native\n").ConfigureAwait(false);
+
+        await RunRequiredAsync(svnadmin, "create", repository).ConfigureAwait(false);
+        var repositoryUrl = new Uri(repository).AbsoluteUri;
+        await RunRequiredAsync(svn, "import", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--message", "Create isolated local action fixture", seed, repositoryUrl).ConfigureAwait(false);
+
+        var stagingWorkingCopy = Path.Combine(root, "external staging");
+        await RunRequiredAsync(svn, "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            repositoryUrl, stagingWorkingCopy).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "propset", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "svn:externals", "^/external-source.txt linked.txt",
+            Path.Combine(stagingWorkingCopy, "external missing directory")).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "commit", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--message", "Add local file external fixture", stagingWorkingCopy).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "update", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            stagingWorkingCopy).ConfigureAwait(false);
+
+        await RunRequiredAsync(svn, "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            repositoryUrl, workingCopy).ConfigureAwait(false);
+
+        var safeMissingDirectory = Path.Combine(workingCopy, "safe missing directory");
+        var safeMissingBackup = Path.Combine(root, "safe missing directory backup");
+        var safeMissingBytes = await File.ReadAllBytesAsync(Path.Combine(safeMissingDirectory, "nested", "data.txt")).ConfigureAwait(false);
+        Directory.Move(safeMissingDirectory, safeMissingBackup);
+        var removeMissingDirectory = await Svn.RemoveAsync(svn, config, workingCopy, "safe missing directory").ConfigureAwait(false);
+        True(removeMissingDirectory.Status == "Ready", $"missing directory removal returned {removeMissingDirectory.Status}: {removeMissingDirectory.Details}");
+        SequenceEqual(safeMissingBytes, await File.ReadAllBytesAsync(Path.Combine(safeMissingBackup, "nested", "data.txt")).ConfigureAwait(false));
+        var safeMissingStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        True(safeMissingStatus.Entries.Any(entry => entry.Path == "safe missing directory" && entry.Item == "deleted"),
+            "missing directory removal did not schedule a delete");
+
+        var propertyChild = Path.Combine(workingCopy, "property missing directory", "nested", "data.txt");
+        await RunRequiredAsync(svn, "propset", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "svn:mime-type", "application/octet-stream", propertyChild).ConfigureAwait(false);
+        var propertyDirectory = Path.Combine(workingCopy, "property missing directory");
+        var propertyBackup = Path.Combine(root, "property missing directory backup");
+        var propertyBytes = await File.ReadAllBytesAsync(propertyChild).ConfigureAwait(false);
+        Directory.Move(propertyDirectory, propertyBackup);
+        var removePropertyDirectory = await Svn.RemoveAsync(svn, config, workingCopy, "property missing directory").ConfigureAwait(false);
+        Equal("NotEligible", removePropertyDirectory.Status);
+        SequenceEqual(propertyBytes, await File.ReadAllBytesAsync(Path.Combine(propertyBackup, "nested", "data.txt")).ConfigureAwait(false));
+
+        var externalDirectory = Path.Combine(workingCopy, "external missing directory");
+        var externalBackup = Path.Combine(root, "external missing directory backup");
+        var externalBytes = await File.ReadAllBytesAsync(Path.Combine(externalDirectory, "linked.txt")).ConfigureAwait(false);
+        Directory.Move(externalDirectory, externalBackup);
+        var removeExternalDirectory = await Svn.RemoveAsync(svn, config, workingCopy, "external missing directory").ConfigureAwait(false);
+        Equal("NotEligible", removeExternalDirectory.Status);
+        SequenceEqual(externalBytes, await File.ReadAllBytesAsync(Path.Combine(externalBackup, "linked.txt")).ConfigureAwait(false));
+
+        var addedName = "-- option @ 文档🌱.txt";
+        var addedPath = Path.Combine(workingCopy, addedName);
+        const string addedContents = "auto properties remain enabled\n";
+        await File.WriteAllTextAsync(addedPath, addedContents).ConfigureAwait(false);
+        var addFile = await Svn.AddAsync(svn, config, workingCopy, addedName).ConfigureAwait(false);
+        True(addFile.Status == "Ready", $"file add returned {addFile.Status}: {addFile.Details}");
+        Equal(addedContents, await File.ReadAllTextAsync(addedPath).ConfigureAwait(false));
+        var autoProperties = await RunCaptureAsync(svn, "proplist", "--xml", "--verbose", "--non-interactive", "--no-auth-cache",
+            "--config-dir", config, "--", addedPath + "@").ConfigureAwait(false);
+        True(autoProperties.StandardOutput.Contains("svn:eol-style", StringComparison.Ordinal), "svn add disabled configured auto-properties");
+        var addStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        True(addStatus.Entries.Any(entry => entry.Path == addedName && entry.Item == "added"), "local SVN did not schedule the Unicode/@ file addition");
+        var undoAddFile = await Svn.UndoAsync(svn, config, workingCopy, addedName).ConfigureAwait(false);
+        True(undoAddFile.Status == "Ready", $"file-add undo returned {undoAddFile.Status}: {undoAddFile.Details}");
+        Equal(addedContents, await File.ReadAllTextAsync(addedPath).ConfigureAwait(false));
+        var undoAddStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        True(!undoAddStatus.Entries.Any(entry => entry.Path == addedName && entry.Item == "added"), "file-add undo left the path scheduled for addition");
+
+        var directoryName = "new directory @";
+        var childRelative = Path.Combine(directoryName, "child @ file.txt");
+        var childPath = Path.Combine(workingCopy, childRelative);
+        Directory.CreateDirectory(Path.GetDirectoryName(childPath)!);
+        await File.WriteAllTextAsync(childPath, "child remains unversioned\n").ConfigureAwait(false);
+        var addDirectory = await Svn.AddAsync(svn, config, workingCopy, directoryName).ConfigureAwait(false);
+        True(addDirectory.Status == "Ready", $"directory add returned {addDirectory.Status}: {addDirectory.Details}");
+        Equal("child remains unversioned\n", await File.ReadAllTextAsync(childPath).ConfigureAwait(false));
+        var directoryStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        True(directoryStatus.Entries.Any(entry => entry.Path == directoryName && entry.Item == "added"), "directory was not scheduled for addition");
+        True(directoryStatus.Entries.Any(entry => entry.Path == childRelative && entry.Item == "unversioned"), "directory add recursively scheduled its child");
+        var addChild = await Svn.AddAsync(svn, config, workingCopy, childRelative).ConfigureAwait(false);
+        True(addChild.Status == "Ready", $"child add returned {addChild.Status}: {addChild.Details}");
+        var undoChild = await Svn.UndoAsync(svn, config, workingCopy, childRelative).ConfigureAwait(false);
+        True(undoChild.Status == "Ready", $"child-add undo returned {undoChild.Status}: {undoChild.Details}");
+        Equal("child remains unversioned\n", await File.ReadAllTextAsync(childPath).ConfigureAwait(false));
+        var childUndoStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        True(childUndoStatus.Entries.Any(entry => entry.Path == directoryName && entry.Item == "added"), "undoing an added child changed its added parent");
+        True(childUndoStatus.Entries.Any(entry => entry.Path == childRelative && entry.Item == "unversioned"), "undoing an added child did not leave its bytes unversioned");
+        var undoAddDirectory = await Svn.UndoAsync(svn, config, workingCopy, directoryName).ConfigureAwait(false);
+        True(undoAddDirectory.Status == "Ready", $"directory-add undo returned {undoAddDirectory.Status}: {undoAddDirectory.Details}");
+        Equal("child remains unversioned\n", await File.ReadAllTextAsync(childPath).ConfigureAwait(false));
+        var directoryUndoStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        True(directoryUndoStatus.Entries.Any(entry => entry.Path == directoryName && entry.Item == "unversioned") &&
+            !directoryUndoStatus.Entries.Any(entry => entry.Path.StartsWith(directoryName + Path.DirectorySeparatorChar, StringComparison.Ordinal) && entry.Item == "added"),
+            "directory-add undo did not leave the preserved tree unversioned");
+
+        var modifiedPath = Path.Combine(workingCopy, "modified @ file.txt");
+        await File.AppendAllTextAsync(modifiedPath, "local modification\n").ConfigureAwait(false);
+        var modifiedBytes = await File.ReadAllBytesAsync(modifiedPath).ConfigureAwait(false);
+        var removeModified = await Svn.RemoveAsync(svn, config, workingCopy, "modified @ file.txt").ConfigureAwait(false);
+        True(removeModified.Status == "Ready", $"modified file removal returned {removeModified.Status}: {removeModified.Details}");
+        SequenceEqual(modifiedBytes, await File.ReadAllBytesAsync(modifiedPath).ConfigureAwait(false));
+        var removedStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        True(removedStatus.Entries.Any(entry => entry.Path == "modified @ file.txt" && entry.Item == "deleted"), "modified removal did not schedule an SVN delete");
+
+        var nestedPath = Path.Combine(workingCopy, "nested @ folder", "retained @ data.txt");
+        await File.AppendAllTextAsync(nestedPath, "nested local modification\n").ConfigureAwait(false);
+        var nestedBytes = await File.ReadAllBytesAsync(nestedPath).ConfigureAwait(false);
+        var removeNested = await Svn.RemoveAsync(svn, config, workingCopy,
+            Path.Combine("nested @ folder", "retained @ data.txt")).ConfigureAwait(false);
+        True(removeNested.Status == "Ready", $"nested file removal returned {removeNested.Status}: {removeNested.Details}");
+        SequenceEqual(nestedBytes, await File.ReadAllBytesAsync(nestedPath).ConfigureAwait(false));
+
+        var missingPath = Path.Combine(workingCopy, "missing @ file.txt");
+        File.Delete(missingPath);
+        var removeMissing = await Svn.RemoveAsync(svn, config, workingCopy, "missing @ file.txt").ConfigureAwait(false);
+        True(removeMissing.Status == "Ready", $"missing file removal returned {removeMissing.Status}: {removeMissing.Details}");
+        True(!File.Exists(missingPath), "removing a missing entry recreated local contents");
+        var undoMissing = await Svn.UndoAsync(svn, config, workingCopy, "missing @ file.txt").ConfigureAwait(false);
+        True(undoMissing.Status == "Ready", $"missing-file undo returned {undoMissing.Status}: {undoMissing.Details}");
+        Equal("missing base contents\n", await File.ReadAllTextAsync(missingPath).ConfigureAwait(false));
+
+        var retainedDirectory = Path.Combine(workingCopy, "retained directory");
+        var retainedTrackedPath = Path.Combine(retainedDirectory, "nested", "data.txt");
+        await File.AppendAllTextAsync(retainedTrackedPath, "local tracked edit\n").ConfigureAwait(false);
+        var retainedTrackedBytes = await File.ReadAllBytesAsync(retainedTrackedPath).ConfigureAwait(false);
+        var unversionedRetainedPath = Path.Combine(retainedDirectory, "local-only @ bytes.txt");
+        const string unversionedRetainedContents = "unversioned directory bytes stay local\n";
+        await File.WriteAllTextAsync(unversionedRetainedPath, unversionedRetainedContents).ConfigureAwait(false);
+
+        var outsideSentinel = Path.Combine(root, "external symlink sentinel.txt");
+        const string sentinelContents = "outside target remains untouched\n";
+        await File.WriteAllTextAsync(outsideSentinel, sentinelContents).ConfigureAwait(false);
+        var retainedLinkPath = Path.Combine(retainedDirectory, "external link @ sentinel.txt");
+        var retainedLinkCreated = false;
+        if (!OperatingSystem.IsWindows())
+        {
+            try
+            {
+                File.CreateSymbolicLink(retainedLinkPath, outsideSentinel);
+                retainedLinkCreated = true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+            {
+                // Symlink preservation is exercised where the current filesystem allows it.
+            }
+        }
+
+        await RunRequiredAsync(svn, "delete", "--keep-local", "--force", "--non-interactive", "--no-auth-cache",
+            "--config-dir", config, "--", retainedDirectory + "@").ConfigureAwait(false);
+        var undoRetainedDirectory = await Svn.UndoAsync(svn, config, workingCopy, "retained directory").ConfigureAwait(false);
+        True(undoRetainedDirectory.Status == "Ready", $"directory-delete undo returned {undoRetainedDirectory.Status}: {undoRetainedDirectory.Details}");
+        SequenceEqual(retainedTrackedBytes, await File.ReadAllBytesAsync(retainedTrackedPath).ConfigureAwait(false));
+        Equal(unversionedRetainedContents, await File.ReadAllTextAsync(unversionedRetainedPath).ConfigureAwait(false));
+        Equal(sentinelContents, await File.ReadAllTextAsync(outsideSentinel).ConfigureAwait(false));
+        if (retainedLinkCreated)
+        {
+            True((File.GetAttributes(retainedLinkPath) & FileAttributes.ReparsePoint) != 0, "nested symlink was replaced during directory undo");
+            Equal(Path.GetFullPath(outsideSentinel), Path.GetFullPath(new FileInfo(retainedLinkPath).LinkTarget ?? string.Empty));
+        }
+
+        var retainedNestedContents = Path.Combine(workingCopy, "retained directory", "nested", "data.txt");
+        Equal("directory contents stay local\nlocal tracked edit\n", await File.ReadAllTextAsync(retainedNestedContents).ConfigureAwait(false));
+        True(!Directory.EnumerateDirectories(workingCopy, ".sourcegit-svn-undo-*", SearchOption.AllDirectories).Any(), "successful undo left a recovery directory in the working copy");
+        s_passed++;
+    }
+
     private static void WriteServerConfig(string repository, string anonymousAccess)
     {
         var conf = Path.Combine(repository, "conf");
@@ -2350,6 +2949,24 @@ internal static class Program
         if (scenario == "history_trailing_wcroot")
             workingCopyRoot += " ";
         Environment.SetEnvironmentVariable(WorkingCopyRootVariable, workingCopyRoot);
+        return calls;
+    }
+
+    private static string PrepareWorkingCopyActionScenario(
+        string directory,
+        string scenario,
+        string workingCopyPath,
+        string relativePath,
+        string item,
+        string properties,
+        string kind)
+    {
+        var calls = PrepareHistoryScenario(directory, scenario, workingCopyPath);
+        var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+        Environment.SetEnvironmentVariable(ActionPathVariable, Path.GetFullPath(relativePath, root));
+        Environment.SetEnvironmentVariable(ActionItemVariable, item);
+        Environment.SetEnvironmentVariable(ActionPropertiesVariable, properties);
+        Environment.SetEnvironmentVariable(ActionKindVariable, kind);
         return calls;
     }
 
