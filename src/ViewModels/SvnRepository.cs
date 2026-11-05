@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -172,7 +173,8 @@ namespace SourceGit.ViewModels
             Preferences.Instance.PropertyChanged += OnDiffPreferencesChanged;
         }
 
-        public Task RefreshAsync() => LoadAsync(false);
+        public Task InitializeAsync() => LoadAsync(false);
+        public Task RefreshAsync() => LoadAsync(false, refresh: true);
         public Task RefreshActiveAsync() => SelectedTabIndex == 1 ? WorkingCopy.RefreshAsync() : RefreshAsync();
         public void CancelActive()
         {
@@ -181,7 +183,7 @@ namespace SourceGit.ViewModels
             else
                 Cancel();
         }
-        public Task RetryAsync() => _retryFileDiff ? RetryDiffAsync() : _retryPaths ? RetryChangedPathsAsync() : LoadAsync(_retryPage);
+        public Task RetryAsync() => _retryFileDiff ? RetryDiffAsync() : _retryPaths ? RetryChangedPathsAsync() : LoadAsync(_retryPage, _retryRefresh);
         public Task LoadMoreAsync() => CanLoadMore ? LoadAsync(true) : Task.CompletedTask;
 
         public Task SignInAsync()
@@ -192,6 +194,9 @@ namespace SourceGit.ViewModels
             _credentials = new Native.Svn.Credentials(Username, Password, Remember);
             _credentialsConfigDirectory = Preferences.Instance.SvnConfigDirectory;
             Password = string.Empty;
+            // An explicit sign-in must validate the supplied credentials with SVN.
+            _retryRefresh = true;
+            _refreshPaths = true;
             return RetryAsync();
         }
 
@@ -477,10 +482,11 @@ namespace SourceGit.ViewModels
                 _credentials = null;
             var credentials = _credentials;
             var expectedUrl = Url;
+            var refresh = _refreshPaths;
             try
             {
                 var result = await Task.Run(() => Native.Svn.GetChangedPathsAsync(executable, configDirectory, FullPath,
-                    revision, credentials, cancellation.Token, expectedUrl), cancellation.Token);
+                    revision, credentials, cancellation.Token, expectedUrl, cacheDirectory: CacheDirectory, refresh: refresh), cancellation.Token);
                 cancellation.Token.ThrowIfCancellationRequested();
                 if (_disposed || _pathsCancellation != cancellation)
                     return;
@@ -488,7 +494,10 @@ namespace SourceGit.ViewModels
                 _pathsStatus = result.Status;
                 _pathsErrorDetails = result.Details;
                 if (result.Status == "Ready")
+                {
+                    _refreshPaths = false;
                     ChangedPaths.AddRange(result.Paths);
+                }
                 else if (result.Status is "AuthenticationRequired" or "AuthenticationFailed" or "CredentialStorageUnavailable")
                 {
                     _retryPaths = true;
@@ -517,11 +526,18 @@ namespace SourceGit.ViewModels
             }
         }
 
-        private async Task LoadAsync(bool append)
+        private static string CacheDirectory => string.IsNullOrEmpty(Native.OS.BasicDirectories.CacheDir)
+            ? null
+            : Path.Combine(Native.OS.BasicDirectories.CacheDir, "svn");
+
+        private async Task LoadAsync(bool append, bool refresh = false)
         {
             if (!CanRefresh)
                 return;
 
+            var refreshChangedPathsRevision = refresh ? SelectedRevision?.Number : null;
+            if (!append)
+                _refreshPaths = refresh;
             var reloadPaths = !append || IsLoadingPaths;
             var reloadDiff = append && IsLoadingDiff;
             if (IsLoadingDiff)
@@ -534,6 +550,7 @@ namespace SourceGit.ViewModels
             _cancellation = cancellation;
             _isLoading = true;
             _retryPage = append;
+            _retryRefresh = refresh;
             _pathsReloadPending = reloadPaths;
             _diffReloadPending = reloadDiff;
             ErrorMessage = string.Empty;
@@ -572,7 +589,9 @@ namespace SourceGit.ViewModels
                 long? before = append && Revisions.Count > 0 ? Revisions[^1].Number : null;
                 var result = await Task.Run(() => Native.Svn.GetHistoryAsync(executable, configDirectory, FullPath,
                     beforeRevision: before, limit: PageSize, credentials: _credentials,
-                    cancellationToken: cancellation.Token, expectedUrl: Url), cancellation.Token);
+                    cancellationToken: cancellation.Token, expectedUrl: Url,
+                    cacheDirectory: CacheDirectory, refresh: refresh,
+                    refreshChangedPathsRevision: refreshChangedPathsRevision), cancellation.Token);
                 cancellation.Token.ThrowIfCancellationRequested();
                 if (result.Status != "Ready")
                 {
@@ -705,10 +724,12 @@ namespace SourceGit.ViewModels
         private bool _isLoading;
         private bool _hasMore;
         private bool _retryPage;
+        private bool _retryRefresh;
         private bool _needsCredentials;
         private bool _remember;
         private bool _isLoadingPaths;
         private bool _pathsReloadPending;
+        private bool _refreshPaths;
         private bool _retryPaths;
         private string _pathsStatus = string.Empty;
         private string _pathsErrorDetails = string.Empty;

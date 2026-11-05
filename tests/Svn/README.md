@@ -21,6 +21,10 @@ safeguards. File-snapshot checks cover change-action endpoints, copy baselines,
 escaped paths, empty versus absent files, binary and special metadata, unknown
 deleted kinds, output limits, and cancellation. They also verify that a changed
 working-copy URL prevents retained credentials from reaching repository queries.
+Metadata-cache checks cover persistent history and selected-path results,
+working-copy UUID/BASE, config and username identity separation, password
+omission, expiry, corruption recovery, force refresh, and refresh-failure
+invalidation. Cache tests use a private temporary directory and fake SVN client.
 
 Working-copy checks cover local XML status, property and changelist rows, copied,
 switched, moved, tree-conflict, and file-external flags, filtering unchanged rows,

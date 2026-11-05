@@ -336,7 +336,7 @@ namespace SourceGit.ViewModels
                 node.IsSvn = true;
                 var svn = new SvnRepository(node.Id);
                 repo = svn;
-                _ = svn.RefreshAsync();
+                _ = svn.InitializeAsync();
             }
             else
             {

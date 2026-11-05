@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -18,6 +19,8 @@ internal static class Program
     private const string ScenarioVariable = "SOURCEGIT_SVN_REGRESSION_SCENARIO";
     private const string InvocationVariable = "SOURCEGIT_SVN_REGRESSION_INVOCATIONS";
     private const string WorkingCopyRootVariable = "SOURCEGIT_SVN_REGRESSION_WC_ROOT";
+    private const string RepositoryUuidVariable = "SOURCEGIT_SVN_REGRESSION_REPOSITORY_UUID";
+    private const string BaseRevisionVariable = "SOURCEGIT_SVN_REGRESSION_BASE_REVISION";
     private static readonly string[] s_knownFixturePasswords =
     {
         "regression-secret-42",
@@ -477,10 +480,15 @@ internal static class Program
     {
         var workingCopyRoot = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
         var scenario = Environment.GetEnvironmentVariable(ScenarioVariable);
+        var baseRevision = Environment.GetEnvironmentVariable(BaseRevisionVariable) ?? "12";
+        var repositoryUuid = Environment.GetEnvironmentVariable(RepositoryUuidVariable);
+        var uuidElement = string.IsNullOrEmpty(repositoryUuid)
+            ? string.Empty
+            : $"<uuid>{System.Security.SecurityElement.Escape(repositoryUuid)}</uuid>";
         var url = scenario == "history_ssh"
             ? "svn+ssh://svn.example.test/repository/path"
             : "svn://fixture/repos/path%20with%20space%20%40";
-        Console.WriteLine($"<info><entry kind=\"file\" path=\"fixture\" revision=\"12\"><url>{url}</url><repository><root>svn://fixture</root></repository><wc-info><wcroot-abspath>{System.Security.SecurityElement.Escape(workingCopyRoot)}</wcroot-abspath></wc-info></entry></info>");
+        Console.WriteLine($"<info><entry kind=\"file\" path=\"fixture\" revision=\"{baseRevision}\"><url>{url}</url><repository><root>svn://fixture</root>{uuidElement}</repository><wc-info><wcroot-abspath>{System.Security.SecurityElement.Escape(workingCopyRoot)}</wcroot-abspath></wc-info></entry></info>");
     }
 
     private static void WriteWorkingCopyStatus()
@@ -631,6 +639,187 @@ internal static class Program
             Equal("7:0", ArgumentAfter(ReadInvocations(nextCalls)[1], "--revision"));
             Equal("earlier\nrevision", next.Revisions[0].Message);
             Equal(originalContents, await File.ReadAllTextAsync(workingCopyPath).ConfigureAwait(false));
+        }).ConfigureAwait(false);
+
+        await CheckAsync("metadata cache reuses parsed history, isolates identity, expires safely, and force refreshes", async () =>
+        {
+            const string expectedUrl = "svn://fixture/repos/path%20with%20space%20%40";
+            const string password = "cache-password-must-not-be-written";
+            var oldUuid = Environment.GetEnvironmentVariable(RepositoryUuidVariable);
+            var oldBaseRevision = Environment.GetEnvironmentVariable(BaseRevisionVariable);
+            var cache = Path.Combine(temp.Path, "history-metadata-cache");
+            var credentials = new Svn.Credentials("cache-alice", password, false);
+            try
+            {
+                Environment.SetEnvironmentVariable(RepositoryUuidVariable, "cache-repository-a");
+                Environment.SetEnvironmentVariable(BaseRevisionVariable, "12");
+
+                var firstCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+                var first = await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2,
+                    credentials: credentials, expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false);
+                Equal("Ready", first.Status);
+                Equal(2, ReadInvocations(firstCalls).Count);
+                Equal("cache-repository-a", (await Svn.GetWorkingCopyAsync(executable, config, workingCopyPath).ConfigureAwait(false)).RepositoryUuid);
+
+                var cacheFile = Directory.GetFiles(cache, "*.svnmeta.json").Single();
+                True(!File.ReadAllText(cacheFile).Contains(password, StringComparison.Ordinal), "cached metadata contains a password");
+                if (!OperatingSystem.IsWindows())
+                {
+                    Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(cacheFile));
+                    Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(cache));
+                }
+
+                var hitCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+                var hit = await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2,
+                    credentials: credentials, expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false);
+                Equal("Ready", hit.Status);
+                Equal(1, ReadInvocations(hitCalls).Count);
+                SequenceEqual(first.Revisions.ConvertAll(item => item.Number), hit.Revisions.ConvertAll(item => item.Number));
+
+                async Task AssertIdentityMissAsync(string scenario, string configPath, Svn.Credentials identityCredentials, string uuid, string baseRevision)
+                {
+                    Environment.SetEnvironmentVariable(RepositoryUuidVariable, uuid);
+                    Environment.SetEnvironmentVariable(BaseRevisionVariable, baseRevision);
+                    var calls = PrepareHistoryScenario(temp.Path, scenario, workingCopyPath);
+                    var result = await Svn.GetHistoryAsync(executable, configPath, workingCopyPath, limit: 2,
+                        credentials: identityCredentials, expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false);
+                    Equal("Ready", result.Status);
+                    Equal(2, ReadInvocations(calls).Count);
+                }
+
+                await AssertIdentityMissAsync("history_paged", config, new Svn.Credentials("cache-bob", password, false),
+                    "cache-repository-a", "12").ConfigureAwait(false);
+                var otherConfig = Path.Combine(temp.Path, "other-svn-config");
+                Directory.CreateDirectory(otherConfig);
+                await AssertIdentityMissAsync("history_paged", otherConfig, credentials, "cache-repository-a", "12").ConfigureAwait(false);
+                await AssertIdentityMissAsync("history_paged", config, credentials, "cache-repository-b", "12").ConfigureAwait(false);
+                await AssertIdentityMissAsync("history_paged", config, credentials, "cache-repository-a", "13").ConfigureAwait(false);
+
+                Environment.SetEnvironmentVariable(RepositoryUuidVariable, "cache-repository-a");
+                Environment.SetEnvironmentVariable(BaseRevisionVariable, "12");
+                var sameKeyCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+                var sameKey = await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2,
+                    credentials: credentials, expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false);
+                Equal("Ready", sameKey.Status);
+                Equal(1, ReadInvocations(sameKeyCalls).Count);
+
+                await File.WriteAllTextAsync(cacheFile, "{broken json").ConfigureAwait(false);
+                var corruptCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+                Equal("Ready", (await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2,
+                    credentials: credentials, expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false)).Status);
+                Equal(2, ReadInvocations(corruptCalls).Count);
+
+                await File.WriteAllTextAsync(cacheFile,
+                    "{\"version\":1,\"kind\":\"history\",\"expiresUtcTicks\":1,\"xml\":\"<log></log>\"}").ConfigureAwait(false);
+                var expiredCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+                Equal("Ready", (await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2,
+                    credentials: credentials, expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false)).Status);
+                Equal(2, ReadInvocations(expiredCalls).Count);
+
+                var invalidXmlExpiry = DateTimeOffset.UtcNow.AddMinutes(4).Ticks.ToString(CultureInfo.InvariantCulture);
+                await File.WriteAllTextAsync(cacheFile,
+                    "{\"version\":1,\"kind\":\"history\",\"expiresUtcTicks\":" + invalidXmlExpiry + ",\"xml\":\"<log><logentry revision='bad'/></log>\"}").ConfigureAwait(false);
+                var invalidXmlCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+                Equal("Ready", (await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2,
+                    credentials: credentials, expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false)).Status);
+                Equal(2, ReadInvocations(invalidXmlCalls).Count);
+
+                var refreshCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+                var refreshed = await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2,
+                    credentials: credentials, expectedUrl: expectedUrl, cacheDirectory: cache, refresh: true).ConfigureAwait(false);
+                Equal("Ready", refreshed.Status);
+                Equal(2, ReadInvocations(refreshCalls).Count);
+
+                var failedRefreshCalls = PrepareHistoryScenario(temp.Path, "history_failure", workingCopyPath);
+                var failedRefresh = await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2,
+                    credentials: credentials, expectedUrl: expectedUrl, cacheDirectory: cache, refresh: true).ConfigureAwait(false);
+                Equal("Failed", failedRefresh.Status);
+                Equal(2, ReadInvocations(failedRefreshCalls).Count);
+
+                var afterFailedRefreshCalls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+                var afterFailedRefresh = await Svn.GetHistoryAsync(executable, config, workingCopyPath, limit: 2,
+                    credentials: credentials, expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false);
+                Equal("Ready", afterFailedRefresh.Status);
+                Equal(2, ReadInvocations(afterFailedRefreshCalls).Count);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RepositoryUuidVariable, oldUuid);
+                Environment.SetEnvironmentVariable(BaseRevisionVariable, oldBaseRevision);
+            }
+        }).ConfigureAwait(false);
+
+        await CheckAsync("changed-path metadata cache avoids historical remote queries and refreshes on demand", async () =>
+        {
+            const string expectedUrl = "svn://fixture/repos/path%20with%20space%20%40";
+            var oldUuid = Environment.GetEnvironmentVariable(RepositoryUuidVariable);
+            var oldBaseRevision = Environment.GetEnvironmentVariable(BaseRevisionVariable);
+            var cache = Path.Combine(temp.Path, "changed-path-metadata-cache");
+            try
+            {
+                Environment.SetEnvironmentVariable(RepositoryUuidVariable, "cache-paths-repository");
+                Environment.SetEnvironmentVariable(BaseRevisionVariable, "12");
+
+                var firstCalls = PrepareHistoryScenario(temp.Path, "changed_paths_main", workingCopyPath);
+                var first = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6,
+                    expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false);
+                Equal("Ready", first.Status);
+                Equal(3, ReadInvocations(firstCalls).Count);
+
+                var hitCalls = PrepareHistoryScenario(temp.Path, "changed_paths_main", workingCopyPath);
+                var hit = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6,
+                    expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false);
+                Equal("Ready", hit.Status);
+                Equal(1, ReadInvocations(hitCalls).Count);
+                SequenceEqual(first.Paths.ConvertAll(path => path.Path), hit.Paths.ConvertAll(path => path.Path));
+
+                var refreshCalls = PrepareHistoryScenario(temp.Path, "changed_paths_main", workingCopyPath);
+                var refreshed = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6,
+                    expectedUrl: expectedUrl, cacheDirectory: cache, refresh: true).ConfigureAwait(false);
+                Equal("Ready", refreshed.Status);
+                Equal(3, ReadInvocations(refreshCalls).Count);
+
+                var failedHistoryRefreshCalls = PrepareHistoryScenario(temp.Path, "history_failure", workingCopyPath);
+                var failedHistoryRefresh = await Svn.GetHistoryAsync(executable, config, workingCopyPath,
+                    expectedUrl: expectedUrl, cacheDirectory: cache, refresh: true, refreshChangedPathsRevision: 6).ConfigureAwait(false);
+                Equal("Failed", failedHistoryRefresh.Status);
+                Equal(2, ReadInvocations(failedHistoryRefreshCalls).Count);
+
+                var afterFailedHistoryRefreshCalls = PrepareHistoryScenario(temp.Path, "changed_paths_main", workingCopyPath);
+                var afterFailedHistoryRefresh = await Svn.GetChangedPathsAsync(executable, config, workingCopyPath, 6,
+                    expectedUrl: expectedUrl, cacheDirectory: cache).ConfigureAwait(false);
+                Equal("Ready", afterFailedHistoryRefresh.Status);
+                Equal(3, ReadInvocations(afterFailedHistoryRefreshCalls).Count);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RepositoryUuidVariable, oldUuid);
+                Environment.SetEnvironmentVariable(BaseRevisionVariable, oldBaseRevision);
+            }
+        }).ConfigureAwait(false);
+
+        await CheckAsync("unusable metadata-cache directory fails open to live SVN", async () =>
+        {
+            var oldUuid = Environment.GetEnvironmentVariable(RepositoryUuidVariable);
+            var oldBaseRevision = Environment.GetEnvironmentVariable(BaseRevisionVariable);
+            var unusableCache = Path.Combine(temp.Path, "cache-path-is-a-file");
+            await File.WriteAllTextAsync(unusableCache, "preserve this file").ConfigureAwait(false);
+            try
+            {
+                Environment.SetEnvironmentVariable(RepositoryUuidVariable, "cache-unusable-directory-repository");
+                Environment.SetEnvironmentVariable(BaseRevisionVariable, "12");
+                var calls = PrepareHistoryScenario(temp.Path, "history_paged", workingCopyPath);
+                var result = await Svn.GetHistoryAsync(executable, config, workingCopyPath,
+                    limit: 2, expectedUrl: "svn://fixture/repos/path%20with%20space%20%40", cacheDirectory: unusableCache).ConfigureAwait(false);
+                Equal("Ready", result.Status);
+                Equal(2, ReadInvocations(calls).Count);
+                Equal("preserve this file", await File.ReadAllTextAsync(unusableCache).ConfigureAwait(false));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RepositoryUuidVariable, oldUuid);
+                Environment.SetEnvironmentVariable(BaseRevisionVariable, oldBaseRevision);
+            }
         }).ConfigureAwait(false);
 
         await CheckAsync("history auth can be retried with stdin-only credentials and no auth-cache writes", async () =>

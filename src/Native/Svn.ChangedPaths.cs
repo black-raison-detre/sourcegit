@@ -33,7 +33,9 @@ namespace SourceGit.Native
             long revision,
             Credentials credentials = null,
             CancellationToken cancellationToken = default,
-            string expectedUrl = null)
+            string expectedUrl = null,
+            string cacheDirectory = null,
+            bool refresh = false)
         {
             if (revision < 1)
                 return new ChangedPathsResult("InvalidArgument", new List<SvnChangedPath>(), "The selected revision must be greater than zero.");
@@ -49,6 +51,36 @@ namespace SourceGit.Native
                     out var accessFailureStatus, out var accessFailureDetails,
                     out var effectiveConfigDirectory, out var sectionsWithPlaintextDisabled))
                 return new ChangedPathsResult(accessFailureStatus, new List<SvnChangedPath>(), accessFailureDetails);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var hasCache = TryCreateMetadataCacheKey(cacheDirectory, "changed-paths", executable, configDirectory, effectiveConfigDirectory,
+                workingCopyPath, workingCopy, credentials, "revision=" + revision.ToString(CultureInfo.InvariantCulture),
+                out var cacheRoot, out var cacheKey);
+            if (hasCache)
+            {
+                if (refresh)
+                    InvalidateMetadataCache(cacheRoot, cacheKey);
+                else if (TryReadMetadataCache(cacheRoot, cacheKey, "changed-paths", out var cached))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        if (ValidateUrl(cached.HistoricalUrl, out _, out _) == null &&
+                            ValidateUrl(cached.RepositoryRoot, out _, out _) == null &&
+                            RepositoryRootsMatch(workingCopy.RepositoryRoot, cached.RepositoryRoot) &&
+                            TryGetRepositoryPath(cached.RepositoryRoot, cached.HistoricalUrl, out var cachedScope))
+                        {
+                            var paths = ParseChangedPathsXml(cached.Xml, cachedScope, revision);
+                            return new ChangedPathsResult("Ready", paths, RepositoryRoot: cached.RepositoryRoot);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // Invalid cache data is a miss; the live SVN result remains authoritative.
+                    }
+                    InvalidateMetadataCache(cacheRoot, cacheKey);
+                }
+            }
 
             var revisionText = revision.ToString(CultureInfo.InvariantCulture);
             var baseRevisionText = workingCopy.Revision.ToString(CultureInfo.InvariantCulture);
@@ -106,7 +138,11 @@ namespace SourceGit.Native
                 if (logResult.OutputTruncated)
                     return new ChangedPathsResult("Failed", new List<SvnChangedPath>(), "SVN changed-path XML exceeded the 12 MiB output limit.");
 
-                return new ChangedPathsResult("Ready", ParseChangedPathsXml(logResult.StandardOutput, historicalScope, revision), RepositoryRoot: historicalRepositoryRoot);
+                var paths = ParseChangedPathsXml(logResult.StandardOutput, historicalScope, revision);
+                if (hasCache)
+                    WriteMetadataCache(cacheRoot, cacheKey, new MetadataCacheDocument(
+                        "changed-paths", logResult.StandardOutput, historicalUrl, historicalRepositoryRoot));
+                return new ChangedPathsResult("Ready", paths, RepositoryRoot: historicalRepositoryRoot);
             }
             catch (XmlException ex)
             {

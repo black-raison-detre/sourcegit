@@ -282,6 +282,7 @@ internal static class Program
                     Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_ROOT", workingCopy);
                     Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_URL", "svn://fixture.test/trunk");
                     Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_CALLS", fakeCalls);
+                    await VerifyMetadataCaching(workingCopy, fakeCalls);
                     using (var authenticated = new SvnRepository(workingCopy))
                     {
                         window.Content = new SourceGit.Views.LauncherPage { DataContext = new LauncherPage(node, authenticated) };
@@ -971,6 +972,90 @@ internal static class Program
             "ordinary Git diff retains before and after lines");
     }
 
+    private static async Task VerifyMetadataCaching(string workingCopy, string calls)
+    {
+        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_CACHE_UUID", Guid.NewGuid().ToString());
+        Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_AUTH_HISTORY", "0");
+        try
+        {
+            using (var first = new SvnRepository(workingCopy))
+            {
+                await first.InitializeAsync();
+                await WaitForPaths(first);
+                Check(!first.HasError && !first.HasPathsError, "cache fixture initially loads from SVN");
+                await first.LoadMoreAsync();
+                await WaitForPaths(first);
+                first.SelectedRevision = first.Revisions[1];
+                await WaitForPaths(first);
+                var beforeRevisit = MetadataCallCount(calls);
+                first.SelectedRevision = first.Revisions[0];
+                await WaitForPaths(first);
+                Check(!first.HasPathsError && MetadataCallCount(calls) == beforeRevisit, "revisiting a revision reuses cached changed paths");
+            }
+
+            var beforeReopen = MetadataCallCount(calls);
+            using (var reopened = new SvnRepository(workingCopy))
+            {
+                await reopened.InitializeAsync();
+                await WaitForPaths(reopened);
+                await reopened.LoadMoreAsync();
+                await WaitForPaths(reopened);
+                Check(!reopened.HasError && !reopened.HasPathsError && reopened.Revisions.Count == 101 &&
+                    MetadataCallCount(calls) == beforeReopen, "reopening reuses persisted history pages and changed paths");
+
+                Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_MESSAGE_SUFFIX", " edited");
+                await reopened.RefreshAsync();
+                await WaitForPaths(reopened);
+                Check(!reopened.HasError && !reopened.HasPathsError && reopened.SelectedMessage.EndsWith(" edited", StringComparison.Ordinal) &&
+                    MetadataCallCount(calls) == beforeReopen + 2, "explicit Refresh refetches history and selected paths despite cache");
+            }
+
+            var afterRefresh = MetadataCallCount(calls);
+            using var refreshed = new SvnRepository(workingCopy);
+            await refreshed.InitializeAsync();
+            await WaitForPaths(refreshed);
+            Check(refreshed.SelectedMessage.EndsWith(" edited", StringComparison.Ordinal) && MetadataCallCount(calls) == afterRefresh,
+                "refreshed commit messages persist across view models");
+            Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_AUTH_HISTORY", "1");
+            await refreshed.RefreshAsync();
+            Check(refreshed.HasError && refreshed.NeedsCredentials, "Refresh reports authentication failure instead of hiding it behind cache");
+            var afterFailedRefresh = MetadataCallCount(calls);
+            Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_AUTH_HISTORY", "0");
+            using (var recovered = new SvnRepository(workingCopy))
+            {
+                await recovered.InitializeAsync();
+                await WaitForPaths(recovered);
+                Check(!recovered.HasError && !recovered.HasPathsError && MetadataCallCount(calls) == afterFailedRefresh + 2,
+                    "reopening after failed Refresh refetches both history and selected paths");
+            }
+            Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_AUTH_HISTORY", "1");
+            await refreshed.RefreshAsync();
+            refreshed.Username = "cache-fixture";
+            refreshed.Password = "ui-fixture-password";
+            await refreshed.SignInAsync();
+            await WaitForPaths(refreshed);
+            Check(!refreshed.HasError && !refreshed.HasPathsError, "explicit sign-in populates its separate metadata cache");
+
+            using var signedOut = new SvnRepository(workingCopy);
+            await signedOut.InitializeAsync();
+            Check(signedOut.NeedsCredentials, "native authentication does not reuse explicit-user cached metadata");
+            signedOut.Username = "cache-fixture";
+            signedOut.Password = "incorrect-password";
+            await signedOut.SignInAsync();
+            Check(signedOut.HasError && signedOut.NeedsCredentials, "explicit sign-in validates credentials despite a cached result for the username");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_CACHE_UUID", null);
+            Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_AUTH_HISTORY", null);
+            Environment.SetEnvironmentVariable("SOURCEGIT_SVN_UI_MESSAGE_SUFFIX", null);
+            File.WriteAllText(calls, string.Empty);
+        }
+    }
+
+    private static int MetadataCallCount(string calls) => File.ReadAllLines(calls)
+        .Count(line => line.StartsWith("history ", StringComparison.Ordinal) || line.StartsWith("paths ", StringComparison.Ordinal));
+
     private static async Task<int> RunFakeSvn(string[] args)
     {
         var root = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_ROOT");
@@ -1012,6 +1097,8 @@ internal static class Program
 
         if (args[0] == "info")
         {
+            var uuid = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_CACHE_UUID");
+            var uuidXml = string.IsNullOrEmpty(uuid) ? string.Empty : $"<uuid>{SecurityElement.Escape(uuid)}</uuid>";
             if (args.Contains("--revision", StringComparer.Ordinal))
             {
                 var password = args.Contains("--password-from-stdin", StringComparer.Ordinal)
@@ -1026,7 +1113,7 @@ internal static class Program
                 return 0;
             }
 
-            Console.WriteLine($"<info><entry revision=\"104\"><url>{SecurityElement.Escape(url)}</url><repository><root>svn://fixture.test</root></repository><wc-info><wcroot-abspath>{SecurityElement.Escape(root)}</wcroot-abspath></wc-info></entry></info>");
+            Console.WriteLine($"<info><entry revision=\"104\"><url>{SecurityElement.Escape(url)}</url><repository><root>svn://fixture.test</root>{uuidXml}</repository><wc-info><wcroot-abspath>{SecurityElement.Escape(root)}</wcroot-abspath></wc-info></entry></info>");
             return 0;
         }
 
@@ -1088,9 +1175,10 @@ internal static class Program
         }
 
         var range = args[Array.IndexOf(args, "--revision") + 1];
+        var messageSuffix = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_MESSAGE_SUFFIX");
         Console.WriteLine("<log>");
         foreach (var revision in range == "HEAD:0" ? Enumerable.Range(5, 100).Reverse() : new[] { 1 })
-            Console.WriteLine($"<logentry revision=\"{revision}\"><author>fixture</author><msg>Revision {revision}</msg></logentry>");
+            Console.WriteLine($"<logentry revision=\"{revision}\"><author>fixture</author><msg>Revision {revision}{SecurityElement.Escape(messageSuffix)}</msg></logentry>");
         Console.WriteLine("</log>");
         return 0;
     }

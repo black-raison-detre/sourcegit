@@ -38,7 +38,8 @@ namespace SourceGit.Native
             string Url = "",
             string RepositoryRoot = "",
             long Revision = 0,
-            string Details = "");
+            string Details = "",
+            string RepositoryUuid = "");
 
         public record HistoryResult(string Status, List<SvnRevision> Revisions, string Details = "");
 
@@ -131,7 +132,8 @@ namespace SourceGit.Native
                     !long.TryParse(info.Revision, NumberStyles.None, CultureInfo.InvariantCulture, out var revision))
                     return new WorkingCopyResult("Failed", Details: "SVN returned invalid or incomplete working-copy info XML.");
 
-                return new WorkingCopyResult("Ready", info.WorkingCopyRoot, info.Url, info.RepositoryRoot, revision);
+                return new WorkingCopyResult("Ready", info.WorkingCopyRoot, info.Url, info.RepositoryRoot, revision,
+                    RepositoryUuid: info.RepositoryUuid);
             }
             catch (XmlException ex)
             {
@@ -147,7 +149,10 @@ namespace SourceGit.Native
             int limit = 100,
             Credentials credentials = null,
             CancellationToken cancellationToken = default,
-            string expectedUrl = null)
+            string expectedUrl = null,
+            string cacheDirectory = null,
+            bool refresh = false,
+            long? refreshChangedPathsRevision = null)
         {
             if (beforeRevision < 0 || limit < 1 || limit > MaxHistoryLimit)
                 return new HistoryResult("InvalidArgument", new List<SvnRevision>(), "The history cursor and page size are invalid.");
@@ -165,8 +170,39 @@ namespace SourceGit.Native
                     out var effectiveConfigDirectory, out var sectionsWithPlaintextDisabled))
                 return new HistoryResult(accessFailureStatus, new List<SvnRevision>(), accessFailureDetails);
 
+            cancellationToken.ThrowIfCancellationRequested();
             if (beforeRevision == 0)
                 return new HistoryResult("Ready", new List<SvnRevision>());
+
+            var query = "cursor=" + (beforeRevision.HasValue ? beforeRevision.Value.ToString(CultureInfo.InvariantCulture) : "HEAD") +
+                ";limit=" + limit.ToString(CultureInfo.InvariantCulture);
+            var hasCache = TryCreateMetadataCacheKey(cacheDirectory, "history", executable, configDirectory, effectiveConfigDirectory,
+                workingCopyPath, workingCopy, credentials, query, out var cacheRoot, out var cacheKey);
+            if (hasCache)
+            {
+                if (refresh)
+                {
+                    InvalidateMetadataCache(cacheRoot, cacheKey);
+                    if (refreshChangedPathsRevision is > 0 &&
+                        TryCreateMetadataCacheKey(cacheDirectory, "changed-paths", executable, configDirectory, effectiveConfigDirectory,
+                            workingCopyPath, workingCopy, credentials,
+                            "revision=" + refreshChangedPathsRevision.Value.ToString(CultureInfo.InvariantCulture),
+                            out var changedPathsCacheRoot, out var changedPathsCacheKey))
+                        InvalidateMetadataCache(changedPathsCacheRoot, changedPathsCacheKey);
+                }
+                else if (TryReadMetadataCache(cacheRoot, cacheKey, "history", out var cached))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        return new HistoryResult("Ready", ParseHistoryXml(cached.Xml));
+                    }
+                    catch (Exception)
+                    {
+                        InvalidateMetadataCache(cacheRoot, cacheKey);
+                    }
+                }
+            }
 
             var range = beforeRevision.HasValue
                 ? (beforeRevision.Value - 1).ToString(CultureInfo.InvariantCulture) + ":0"
@@ -191,7 +227,10 @@ namespace SourceGit.Native
 
             try
             {
-                return new HistoryResult("Ready", ParseHistoryXml(result.StandardOutput));
+                var revisions = ParseHistoryXml(result.StandardOutput);
+                if (hasCache)
+                    WriteMetadataCache(cacheRoot, cacheKey, new MetadataCacheDocument("history", result.StandardOutput));
+                return new HistoryResult("Ready", revisions);
             }
             catch (XmlException ex)
             {
@@ -387,7 +426,7 @@ namespace SourceGit.Native
             return Redact($"Exit code: {result.ExitCode}\n{stderr}".Trim(), credentials);
         }
 
-        private static (string WorkingCopyRoot, string Url, string RepositoryRoot, string Revision) ParseWorkingCopyInfo(string xml)
+        private static (string WorkingCopyRoot, string Url, string RepositoryRoot, string Revision, string RepositoryUuid) ParseWorkingCopyInfo(string xml)
         {
             var settings = new XmlReaderSettings
             {
@@ -413,7 +452,8 @@ namespace SourceGit.Native
                 wcInfo.SelectSingleNode("wcroot-abspath")?.InnerText ?? string.Empty,
                 entry.SelectSingleNode("url")?.InnerText?.Trim() ?? string.Empty,
                 entry.SelectSingleNode("repository/root")?.InnerText?.Trim() ?? string.Empty,
-                entry.GetAttribute("revision"));
+                entry.GetAttribute("revision"),
+                entry.SelectSingleNode("repository/uuid")?.InnerText?.Trim() ?? string.Empty);
         }
 
         private static List<SvnRevision> ParseHistoryXml(string xml)

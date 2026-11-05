@@ -17,6 +17,7 @@
 - [x] Verify selection, paging, and large-diff behavior without modifying working-copy files.
 
 - [x] Show working-copy status and read-only local content/property diffs, including unversioned, missing, conflicted, copied, moved, and replaced paths. Keep local inspection available independently of remote history and authentication.
+- [x] Cache revision-history pages and changed-file lists on disk for five minutes; reuse them when opening tabs or revisiting revisions, and bypass the cache on explicit Refresh.
 
 ## Next: working-copy actions
 
