@@ -1,0 +1,88 @@
+<v:ChromelessWindow xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:v="using:SourceGit.Views"
+                    x:Class="SourceGit.Views.SvnPathOperationDialog"
+                    x:Name="ThisControl"
+                    Icon="/App.ico"
+                    Width="620" MinWidth="540" Height="520" MinHeight="480" MaxHeight="760"
+                    CanResize="False" CloseOnESC="False"
+                    WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Grid Grid.Row="0" Height="28" IsVisible="{Binding !#ThisControl.UseSystemWindowFrame}">
+      <Border Background="{DynamicResource Brush.TitleBar}" BorderThickness="0,0,0,1"
+              BorderBrush="{DynamicResource Brush.Border0}" PointerPressed="BeginMoveWindow"/>
+      <TextBlock x:Name="DialogTitle" Classes="bold" HorizontalAlignment="Center"
+                 VerticalAlignment="Center" IsHitTestVisible="False"/>
+      <v:CaptionButtons HorizontalAlignment="Right" IsCloseButtonOnly="True"
+                        IsVisible="{OnPlatform True, macOS=False}"/>
+    </Grid>
+    <ScrollViewer x:Name="BodyScrollViewer" Grid.Row="1" Margin="16" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="12">
+        <StackPanel Spacing="4">
+          <TextBlock Text="{DynamicResource Text.SVN.WorkingCopy}" FontWeight="Bold"/>
+          <TextBlock x:Name="WorkingCopyPath" TextWrapping="Wrap" MaxLines="2" MaxHeight="40"
+                     TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding #WorkingCopyPath.Text}"
+                     Foreground="{DynamicResource Brush.FG2}"/>
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+          <TextBlock Text="{DynamicResource Text.SVN.PathOperation.Operation}" FontWeight="Bold"/>
+          <ComboBox x:Name="OperationSelector" Width="220" HorizontalAlignment="Left" SelectionChanged="OnOperationChanged"
+                    AutomationProperties.Name="{DynamicResource Text.SVN.PathOperation.Operation}">
+            <ComboBoxItem Content="{DynamicResource Text.SVN.PathOperation.Rename}" Tag="rename"/>
+            <ComboBoxItem Content="{DynamicResource Text.SVN.PathOperation.Move}" Tag="move"/>
+            <ComboBoxItem Content="{DynamicResource Text.SVN.PathOperation.Copy}" Tag="copy"/>
+          </ComboBox>
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+          <TextBlock Text="{DynamicResource Text.SVN.PathOperation.Source}" FontWeight="Bold"/>
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBox x:Name="SourcePath" Grid.Column="0" MinHeight="28" TextChanged="OnSourceTextChanged"
+                     Watermark="{DynamicResource Text.SVN.PathOperation.SourcePlaceholder}"
+                     AutomationProperties.Name="{DynamicResource Text.SVN.PathOperation.Source}"/>
+            <Button x:Name="BrowseButton" Grid.Column="1" Classes="flat" Height="28" Margin="8,0,0,0" Padding="12,0"
+                    Content="{DynamicResource Text.SVN.PathOperation.Browse}" Click="OnBrowse"/>
+          </Grid>
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+          <TextBlock x:Name="TargetLabel" FontWeight="Bold"/>
+          <TextBox x:Name="TargetInput" MinHeight="28" TextChanged="OnTargetTextChanged"
+                   AutomationProperties.Name="{Binding #TargetLabel.Text}"/>
+          <TextBlock Text="{DynamicResource Text.SVN.PathOperation.Result}" FontWeight="Bold" Margin="0,4,0,0"/>
+          <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}" Background="{DynamicResource Brush.Contents}"
+                  Padding="8,6">
+            <TextBlock x:Name="DestinationPreview" TextWrapping="Wrap" MinHeight="20"
+                       FontFamily="{DynamicResource Fonts.Monospace}" AutomationProperties.Name="{DynamicResource Text.SVN.PathOperation.Result}"/>
+          </Border>
+        </StackPanel>
+
+        <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}" Background="{DynamicResource Brush.Contents}"
+                Padding="10,8">
+          <TextBlock x:Name="PendingCommitNotice" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}"/>
+        </Border>
+
+        <StackPanel x:Name="ExecutionStatus" Orientation="Horizontal" Spacing="8" IsVisible="False">
+          <v:LoadingIcon Width="16" Height="16"/>
+          <TextBlock x:Name="ExecutionMessage" Foreground="{DynamicResource Brush.FG2}" TextWrapping="Wrap"/>
+        </StackPanel>
+        <TextBlock x:Name="ValidationMessage" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}" IsVisible="False"/>
+        <StackPanel x:Name="ErrorPanel" Spacing="6" IsVisible="False">
+          <ScrollViewer MaxHeight="100" HorizontalScrollBarVisibility="Disabled">
+            <TextBlock x:Name="ErrorMessage" TextWrapping="Wrap"/>
+          </ScrollViewer>
+          <Expander x:Name="ErrorDetailsExpander" Header="{DynamicResource Text.SVN.Connection.Details}" IsVisible="False">
+            <TextBox x:Name="ErrorDetails" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/>
+          </Expander>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="16,0,16,16">
+      <Button x:Name="CancelButton" Classes="flat" Height="30" MinWidth="80" Padding="12,0"
+              Content="{DynamicResource Text.Cancel}" Click="OnCancel"/>
+      <Button x:Name="PrimaryButton" Classes="flat primary" Height="30" MinWidth="80" Padding="12,0"
+              IsDefault="True" IsEnabled="False" Click="OnSubmit"/>
+    </StackPanel>
+  </Grid>
+</v:ChromelessWindow>

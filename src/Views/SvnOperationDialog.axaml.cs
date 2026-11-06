@@ -45,7 +45,7 @@ namespace SourceGit.Views
             var candidates = repo.WorkingCopy.GetCommitCandidates();
             var selected = repo.WorkingCopy.SelectedEntries.Select(entry => entry.Path).ToHashSet(StringComparer.Ordinal);
             var dialog = new SvnOperationDialog();
-            dialog.ConfigureCommit(repo.FullPath, candidates, selected);
+            dialog.ConfigureCommit(repo.FullPath, candidates, selected, repo.WorkingCopy);
             dialog.CommitMessage.Text = repo.CommitMessageDraft;
             var accepted = await dialog.ShowDialog<bool>(owner);
             repo.CommitMessageDraft = dialog.CommitMessage.Text ?? string.Empty;
@@ -84,6 +84,7 @@ namespace SourceGit.Views
         private bool _ready;
         private string _revision = "HEAD";
         private IReadOnlyList<string> _paths = Array.Empty<string>();
+        private ViewModels.SvnWorkingCopy _workingCopy;
 
         private void ConfigureUpdate(string path, string revision)
         {
@@ -106,9 +107,11 @@ namespace SourceGit.Views
             };
         }
 
-        private void ConfigureCommit(string path, IReadOnlyList<ViewModels.SvnWorkingCopyEntry> candidates, HashSet<string> selected)
+        private void ConfigureCommit(string path, IReadOnlyList<ViewModels.SvnWorkingCopyEntry> candidates,
+            HashSet<string> selected, ViewModels.SvnWorkingCopy workingCopy)
         {
             _isCommit = true;
+            _workingCopy = workingCopy;
             Title = App.Text("SVN.Commit");
             DialogTitle.Text = Title;
             WorkingCopyPath.Text = path;
@@ -181,6 +184,10 @@ namespace SourceGit.Views
                             break;
                         }
                     }
+                    if (string.IsNullOrEmpty(error) && _workingCopy != null &&
+                        !_workingCopy.CanCommitSelection(_candidates.Where(candidate => candidate.CheckBox.IsChecked == true)
+                            .Select(candidate => candidate.Entry).ToArray(), out var selectionError))
+                        error = selectionError;
                     if (string.IsNullOrEmpty(error) && string.IsNullOrWhiteSpace(CommitMessage.Text))
                         error = App.Text("SVN.Commit.MessageRequired");
                 }

@@ -29,13 +29,171 @@ namespace SourceGit.Native
         /// <summary>Returns whether a fresh, explicitly selectable working-copy change can be committed.</summary>
         public static bool CanCommit(SvnWorkingCopyEntry entry)
         {
-            return entry != null && IsSafeOperationEntry(entry) &&
-                (entry.Item is "added" or "deleted" or "modified" ||
-                    (entry.Item == "normal" && entry.Properties == "modified")) &&
-                entry.Properties is "none" or "normal" or "modified" &&
-                !entry.IsCopied && !entry.IsSwitched && !entry.IsTreeConflicted && !entry.IsFileExternal &&
-                string.IsNullOrEmpty(entry.MovedFrom) && string.IsNullOrEmpty(entry.MovedTo) &&
-                (entry.Kind is "file" or "dir" || (entry.Item == "deleted" && entry.Kind == "unknown"));
+            if (entry == null || (entry.Path != "." && !IsSafeActionEntry(entry)) ||
+                entry.Properties is not ("none" or "normal" or "modified") ||
+                entry.IsSwitched || entry.IsTreeConflicted || entry.IsFileExternal)
+                return false;
+
+            if (entry.Path == ".")
+                return entry.Item == "normal" && entry.Properties == "modified" && !entry.IsCopied &&
+                    string.IsNullOrEmpty(entry.MovedFrom) && string.IsNullOrEmpty(entry.MovedTo) && entry.Kind == "dir";
+
+            var supportedState = entry.Item is "added" or "deleted" or "modified" ||
+                (entry.Item == "normal" && entry.Properties == "modified") ||
+                (entry.IsCopied && entry.Item == "normal") ||
+                (entry.IsCopied && entry.Item == "modified");
+            if (!supportedState)
+                return false;
+
+            if (entry.IsCopied && entry.Item is not ("added" or "normal" or "modified"))
+                return false;
+            if ((!string.IsNullOrEmpty(entry.MovedFrom) || !string.IsNullOrEmpty(entry.MovedTo)) &&
+                entry.Item is not ("added" or "deleted"))
+                return false;
+
+            return entry.Kind is "file" or "dir" || (entry.Item == "deleted" && entry.Kind == "unknown");
+        }
+
+        /// <summary>
+        /// Validates the explicit commit selection, including move pairs and complete copied or
+        /// moved directory scopes. The same check is used by the commit UI and backend.
+        /// </summary>
+        public static bool CanCommitSelection(
+            IReadOnlyList<SvnWorkingCopyEntry> selectedEntries,
+            IReadOnlyList<SvnWorkingCopyEntry> allEntries,
+            out string error)
+        {
+            error = "Select at least one changed working-copy path to commit.";
+            if (selectedEntries == null || selectedEntries.Count == 0 || allEntries == null)
+                return false;
+
+            var selected = new List<SvnWorkingCopyEntry>(selectedEntries.Count);
+            foreach (var requested in selectedEntries)
+            {
+                if (requested == null)
+                {
+                    error = "The selection contains an invalid working-copy path.";
+                    return false;
+                }
+                var entry = allEntries.FirstOrDefault(item => item != null && PathEquals(item.Path, requested.Path));
+                if (entry == null || !CanCommit(entry))
+                {
+                    error = "The selection contains an unversioned, missing, conflicted, switched, external, or unsupported path.";
+                    return false;
+                }
+                if (selected.Any(item => PathEquals(item.Path, entry.Path)))
+                {
+                    error = "The selection contains the same path more than once.";
+                    return false;
+                }
+                selected.Add(entry);
+            }
+
+            foreach (var entry in selected)
+            {
+                if (HasUnsafeCommitAncestor(entry, allEntries, selected))
+                {
+                    error = "A selected path is beneath an unselected copied or moved directory, or a switched, external, missing, replaced, or conflicted status boundary.";
+                    return false;
+                }
+                if (!AreAllAddedAncestorsSelected(entry, allEntries, selected.Select(item => new OperationSelection(item.Path, item)).ToArray()))
+                {
+                    error = "A selected path beneath a scheduled directory addition requires that added parent in the same commit selection.";
+                    return false;
+                }
+                if (!HasReciprocalSelectedMovePartner(entry, allEntries, selected))
+                {
+                    error = "Both reciprocal endpoints of a scheduled move must be selected for commit.";
+                    return false;
+                }
+                if (entry.Item == "deleted" && (entry.Kind is "dir" or "unknown") &&
+                    allEntries.Any(descendant => IsPathAncestor(entry.Path, descendant.Path) &&
+                        descendant.Item != "unversioned" && !selected.Any(item => PathEquals(item.Path, descendant.Path))))
+                {
+                    error = "A scheduled directory deletion commits its full repository subtree; select every reported changed descendant.";
+                    return false;
+                }
+                if (allEntries.Any(ancestor => ancestor.Item == "deleted" && (ancestor.Kind is "dir" or "unknown") &&
+                        IsPathAncestor(ancestor.Path, entry.Path) && !selected.Any(item => PathEquals(item.Path, ancestor.Path))))
+                {
+                    error = "A selected path beneath a scheduled directory deletion requires that deleted parent in the same commit selection.";
+                    return false;
+                }
+                if (IsDirectoryCopyOrMoveRoot(entry) && !HasCompleteScheduledDirectorySelection(entry, allEntries, selected))
+                {
+                    error = "A copied or moved directory requires a complete explicit selection of its versioned descendants.";
+                    return false;
+                }
+            }
+
+            error = string.Empty;
+            return true;
+        }
+
+        /// <summary>Returns whether a commit candidate is beneath an unsafe or unselected schedule boundary.</summary>
+        public static bool HasUnsafeCommitAncestor(
+            SvnWorkingCopyEntry entry,
+            IReadOnlyList<SvnWorkingCopyEntry> entries,
+            IReadOnlyList<SvnWorkingCopyEntry> selectedEntries)
+        {
+            if (entry == null || entries == null)
+                return false;
+            return entries.Any(ancestor => ancestor != null && !PathEquals(ancestor.Path, entry.Path) &&
+                (ancestor.Path == "." && entry.Path != "." || IsPathAncestor(ancestor.Path, entry.Path)) &&
+                (ancestor.IsSwitched || ancestor.IsTreeConflicted || ancestor.IsFileExternal ||
+                 ancestor.Item is "missing" or "replaced" or "conflicted" or "external" or "incomplete" or "obstructed" ||
+                 ancestor.Properties == "conflicted" ||
+                 ((ancestor.IsCopied || !string.IsNullOrEmpty(ancestor.MovedFrom) || !string.IsNullOrEmpty(ancestor.MovedTo)) &&
+                  (ancestor.Kind != "dir" || selectedEntries?.Any(item => PathEquals(item.Path, ancestor.Path)) != true))));
+        }
+
+        private static bool HasReciprocalSelectedMovePartner(
+            SvnWorkingCopyEntry selected,
+            IReadOnlyList<SvnWorkingCopyEntry> entries,
+            IReadOnlyList<SvnWorkingCopyEntry> selections)
+        {
+            if (!string.IsNullOrEmpty(selected.MovedFrom))
+            {
+                var partner = entries.FirstOrDefault(item => item != null && PathEquals(item.Path, selected.MovedFrom));
+                if (partner == null || !PathEquals(partner.MovedTo, selected.Path) ||
+                    !selections.Any(item => PathEquals(item.Path, partner.Path)))
+                    return false;
+            }
+            if (!string.IsNullOrEmpty(selected.MovedTo))
+            {
+                var partner = entries.FirstOrDefault(item => item != null && PathEquals(item.Path, selected.MovedTo));
+                if (partner == null || !PathEquals(partner.MovedFrom, selected.Path) ||
+                    !selections.Any(item => PathEquals(item.Path, partner.Path)))
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool IsDirectoryCopyOrMoveRoot(SvnWorkingCopyEntry entry)
+        {
+            return entry.Kind == "dir" && (entry.IsCopied ||
+                !string.IsNullOrEmpty(entry.MovedFrom) || !string.IsNullOrEmpty(entry.MovedTo));
+        }
+
+        private static bool HasCompleteScheduledDirectorySelection(
+            SvnWorkingCopyEntry directory,
+            IReadOnlyList<SvnWorkingCopyEntry> entries,
+            IReadOnlyList<SvnWorkingCopyEntry> selections)
+        {
+            var roots = new List<string> { directory.Path };
+            if (!string.IsNullOrEmpty(directory.MovedFrom))
+                roots.Add(directory.MovedFrom);
+            if (!string.IsNullOrEmpty(directory.MovedTo))
+                roots.Add(directory.MovedTo);
+            foreach (var root in roots)
+            {
+                foreach (var descendant in entries.Where(item => item != null && IsPathAncestor(root, item.Path)))
+                {
+                    if (!CanCommit(descendant) || !selections.Any(item => PathEquals(item.Path, descendant.Path)))
+                        return false;
+                }
+            }
+            return true;
         }
 
         /// <summary>
@@ -484,35 +642,7 @@ namespace SourceGit.Native
                 }
                 selections.Add(new OperationSelection(target, entry));
             }
-            var selectedPaths = selections.Select(selection => selection.Entry.Path).ToHashSet(PathComparer);
-            foreach (var selection in selections)
-            {
-                if (HasUnsafeOperationAncestor(selection.Entry, entries))
-                {
-                    error = "A selected path is beneath a switched, external, copied, moved, missing, replaced, or conflicted status boundary.";
-                    return false;
-                }
-                if (!AreAllAddedAncestorsSelected(selection.Entry, entries, selections))
-                {
-                    error = "A selected path beneath a scheduled directory addition requires that added parent in the same commit selection.";
-                    return false;
-                }
-                if (selection.Entry.Item == "deleted" && (selection.Entry.Kind is "dir" or "unknown") &&
-                    entries.Any(descendant => IsPathAncestor(selection.Entry.Path, descendant.Path) &&
-                        descendant.Item != "unversioned" && !selectedPaths.Contains(descendant.Path)))
-                {
-                    error = "A scheduled directory deletion commits its full repository subtree; select every reported changed descendant.";
-                    return false;
-                }
-                if (entries.Any(ancestor => ancestor.Item == "deleted" && (ancestor.Kind is "dir" or "unknown") &&
-                        IsPathAncestor(ancestor.Path, selection.Entry.Path) && !selectedPaths.Contains(ancestor.Path)))
-                {
-                    error = "A selected path beneath a scheduled directory deletion requires that deleted parent in the same commit selection.";
-                    return false;
-                }
-            }
-            error = string.Empty;
-            return true;
+            return CanCommitSelection(selections.Select(selection => selection.Entry).ToArray(), entries, out error);
         }
 
         private static bool AreAllAddedAncestorsSelected(

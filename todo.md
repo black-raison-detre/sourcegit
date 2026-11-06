@@ -28,10 +28,11 @@
 - [x] Add whole-working-copy Update and Update to revision, including an entry from the selected history revision.
 - [x] Add Commit with a reviewed, explicit path selection and required message; leave unchecked changes uncommitted.
 - [x] Add single-path conflict inspection and explicit resolution: compare available file versions, inspect property reports/current diffs, and review tree-conflict details. Confirm path-wide resolution, require acknowledgment for manually repaired trees, reject stale snapshots, and refresh local status after attempted changes.
+- [x] Add working-copy-local SVN-aware Rename, Move, and Copy for tracked files/folders, including clean-source entry, exact destinations, retained local edits and ancestry, and explicit Commit selection for copied paths and paired moves.
 
 ## Later increments
 
-- [ ] Add SVN-aware Rename/Move/Copy, Ignore, editable Properties, and Changelists.
+- [ ] Add Ignore, editable Properties, and Changelists.
 - [ ] Add Cleanup and missing-file/rename repair workflows with explicit scope.
 - [ ] Add checkout and remote repository browsing as separate entry points from opening an existing working copy.
 - [ ] Support SVN over SSH with explicit key/agent integration.
@@ -52,8 +53,14 @@
 - [x] 432 full headless UI/workflow checks, followed by 84 focused conflict checks covering the final source. Light/dark renders inspected, including the minimum 620×480 dialog size, stale recovery, and property-report layout. Independent source review approved.
 - [x] Release build and formatting verification on macOS arm64 with .NET 10.0.400 and SVN 1.14.5.
 
+## Rename/Move/Copy increment verification (2026-11-06)
+
+- [x] Disposable `file://` operations preserve local text/property edits and copy ancestry through Commit, including file/folder moves, folder copies, and exact embedded/trailing `@` names. Unsafe untracked/ignored trees remain unchanged; authenticated local `svnserve` integration also passes.
+- [x] 501 full headless GUI/workflow checks, followed by 69 focused checks on the final production source. Coverage includes clean-source entry, selected-action keyboard navigation, Enter/Escape, move-pair Commit selection, switched-subtree exclusion, stale-source recovery, and literal Unix backslashes. Light/dark renders inspected at the minimum 540×480 dialog size, including visible failure summaries above the fixed footer.
+- [x] Release build and formatting verification on macOS arm64 with .NET 10.0.400 and SVN 1.14.5. Independent source review approved after correcting Windows path-separator validation; Windows runtime proof remains outstanding.
+
 ## Remaining validation
 
-- [ ] Exercise the native desktop interface in light/dark themes: folder opening, F5, keyboard navigation, clipboard copy, resizing, authentication, cancellation, conflict inspection/resolution, and closing/restoring tabs. Headless checks already cover the core workflows and rendered layouts.
+- [ ] Exercise the native desktop interface in light/dark themes: folder opening, F5, keyboard navigation, clipboard copy, resizing, authentication, cancellation, conflict inspection/resolution, Rename/Move/Copy and their native file/folder pickers, and closing/restoring tabs. Include Windows path and case-only rename behavior. Headless checks already cover the core workflows and rendered layouts.
 - [ ] Verify native credential-provider behavior and remembered credentials on supported platforms; current authenticated integration uses an isolated config with password stores disabled.
 - [ ] Validate Native AOT publishing and packaged-app behavior for the SVN feature. Release compilation alone does not cover these.

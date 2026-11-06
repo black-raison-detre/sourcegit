@@ -541,6 +541,7 @@ namespace SourceGit.ViewModels
             OnPropertyChanged(nameof(SelectedEntries));
             OnPropertyChanged(nameof(SelectionSummary));
             OnPropertyChanged(nameof(CanSelectedActions));
+            OnPropertyChanged(nameof(CanFileOperations));
             OnPropertyChanged(nameof(CanInspectConflict));
             OnPropertyChanged(nameof(CanRevert));
             OnPropertyChanged(nameof(CanCommit));

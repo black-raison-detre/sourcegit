@@ -1229,12 +1229,71 @@
   <x:String x:Key="Text.SVN.Commit.Applying" xml:space="preserve">Committing selected paths…</x:String>
   <x:String x:Key="Text.SVN.Commit.Completed" xml:space="preserve">Commit finished for “{0}”.</x:String>
   <x:String x:Key="Text.SVN.Commit.Failed" xml:space="preserve">Could not confirm the commit for “{0}”. Inspect history and refreshed status before retrying.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Title" xml:space="preserve">SVN file operations</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.FileOperations" xml:space="preserve">File operations…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Operation" xml:space="preserve">Operation</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Rename" xml:space="preserve">Rename</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Move" xml:space="preserve">Move</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Copy" xml:space="preserve">Copy</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.RenameMenu" xml:space="preserve">Rename…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.MoveMenu" xml:space="preserve">Move…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.CopyMenu" xml:space="preserve">Copy…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Source" xml:space="preserve">Source path</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.SourcePlaceholder" xml:space="preserve">Working-copy-relative file or folder</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Browse" xml:space="preserve">Browse ▾</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.BrowseFile" xml:space="preserve">File…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.BrowseFolder" xml:space="preserve">Folder…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.BrowseFailed" xml:space="preserve">Could not open the file or folder picker.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.BrowseLocalPathUnavailable" xml:space="preserve">The selected location does not have a local filesystem path.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.NewName" xml:space="preserve">New name</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Destination" xml:space="preserve">Destination path, including the filename</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Result" xml:space="preserve">Resulting working-copy path</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.PendingCommit.Rename" xml:space="preserve">History is retained. Commit afterward to save this change to the repository.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.PendingCommit.Move" xml:space="preserve">History is retained. Commit afterward to save this change to the repository.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.PendingCommit.Copy" xml:space="preserve">The original source remains unchanged. History is retained. Commit afterward to save the copy.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.WorkingCopyNotReady" xml:space="preserve">Wait for the working-copy status to finish loading.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.SourceRequired" xml:space="preserve">Enter a source path.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.InvalidSource" xml:space="preserve">Enter a safe working-copy-relative source path.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.RootNotAllowed" xml:space="preserve">Choose a file or folder inside the working copy, not the working-copy root.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.OutsideWorkingCopy" xml:space="preserve">The source and destination must stay inside this working copy.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.SourceMissing" xml:space="preserve">Choose an existing file or folder.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.SourceNotEligible" xml:space="preserve">This source has a scheduled or unsupported change. Refresh status and resolve it first.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.NameRequired" xml:space="preserve">Enter a new name.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.DestinationRequired" xml:space="preserve">Enter the complete destination path, including its filename.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.NameOnly" xml:space="preserve">Enter a name without a folder path.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.InvalidDestination" xml:space="preserve">Enter a safe working-copy-relative destination path.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.DestinationMustDiffer" xml:space="preserve">Choose a different destination from the source.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.SelfDescendant" xml:space="preserve">A folder cannot be moved or copied inside itself.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.DestinationExists" xml:space="preserve">A file or folder already exists at the destination.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.ParentMissing" xml:space="preserve">Choose an existing parent folder for the destination.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.ParentNotVersioned" xml:space="preserve">The destination parent must be an existing versioned folder.</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Applying" xml:space="preserve">Applying SVN path operation…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Canceling" xml:space="preserve">Canceling and refreshing working-copy status…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Retry" xml:space="preserve">Retry</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Rename.Applying" xml:space="preserve">Renaming local path…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Rename.Completed" xml:space="preserve">Rename scheduled locally. History is retained; commit afterward to save the change:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Rename.Failed" xml:space="preserve">Could not finish renaming this path. Review refreshed status before retrying:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Move.Applying" xml:space="preserve">Moving local path…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Move.Completed" xml:space="preserve">Move scheduled locally. History is retained; commit afterward to save the change:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Move.Failed" xml:space="preserve">Could not finish moving this path. Review refreshed status before retrying:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Copy.Applying" xml:space="preserve">Copying local path…</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Copy.Completed" xml:space="preserve">Copy scheduled locally. History is retained; commit afterward to save the change:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Copy.Failed" xml:space="preserve">Could not finish copying this path. Review refreshed status before retrying:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.PathOperation.Failed" xml:space="preserve">Could not finish this path operation. Review refreshed status before retrying:
+{0}</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.SelectedActions" xml:space="preserve">Selected actions ▾</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.SelectedCount" xml:space="preserve">{0} selected</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.CopyPaths" xml:space="preserve">Copy paths</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.Revert" xml:space="preserve">Revert…</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.RevertTitle" xml:space="preserve">Revert local changes</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.SelectionEligibility" xml:space="preserve">Every selected path must support this action. Select eligible paths together; actions do not silently skip unsupported paths.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.PathOperationEligibility" xml:space="preserve">Choose exactly one existing versioned file or folder without scheduled, conflicted, switched, copied, or external changes.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.RevertEligibility" xml:space="preserve">Every selected path must support reverting local edits or restoring missing tracked files. Use Undo for scheduled additions or removals. Revert working-copy root properties separately from other paths.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.RevertRootConfirm" xml:space="preserve">Discard local property edits on the working-copy root? Only the root properties will be reverted. Local file and subdirectory edits will be left unchanged. This cannot be undone.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.RevertConfirm" xml:space="preserve">Discard local content and property changes and restore missing tracked files in these paths? For directories, this includes versioned descendants. Use Undo scheduled add / remove for scheduled additions or removals. Copies, moves, and conflicts must be handled separately. Discarded edits cannot be recovered by this action.

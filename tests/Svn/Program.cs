@@ -20,6 +20,7 @@ internal static class Program
     private const string InvocationVariable = "SOURCEGIT_SVN_REGRESSION_INVOCATIONS";
     private const string WorkingCopyRootVariable = "SOURCEGIT_SVN_REGRESSION_WC_ROOT";
     private const string ActionPathVariable = "SOURCEGIT_SVN_REGRESSION_ACTION_PATH";
+    private const string PathOperationDestinationVariable = "SOURCEGIT_SVN_REGRESSION_PATH_OPERATION_DESTINATION";
     private const string ActionItemVariable = "SOURCEGIT_SVN_REGRESSION_ACTION_ITEM";
     private const string ActionPropertiesVariable = "SOURCEGIT_SVN_REGRESSION_ACTION_PROPERTIES";
     private const string ActionKindVariable = "SOURCEGIT_SVN_REGRESSION_ACTION_KIND";
@@ -72,7 +73,7 @@ internal static class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "resolve" or "update" or "commit" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "resolve" or "update" or "commit" or "move" or "copy" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -144,6 +145,18 @@ internal static class Program
             return 0;
         }
 
+        if ((args[0] is "move" or "copy") && scenario.StartsWith("wc_path_", StringComparison.Ordinal))
+        {
+            if (scenario == "wc_path_slow")
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+            if (scenario == "wc_path_mutation_fail")
+            {
+                Console.Error.WriteLine("svn: E200000: synthetic path operation failure");
+                return 1;
+            }
+            return 0;
+        }
+
         if (args[0] == "resolve" && scenario.StartsWith("wc_conflict_", StringComparison.Ordinal))
         {
             if (scenario == "wc_conflict_resolve_slow")
@@ -193,6 +206,16 @@ internal static class Program
         {
             WriteWorkingCopyInfo();
             return 0;
+        }
+
+        if (args[0] == "info" && scenario.StartsWith("wc_path_", StringComparison.Ordinal))
+        {
+            if (!args.Contains("--depth", StringComparer.Ordinal))
+            {
+                WriteWorkingCopyInfo();
+                return 0;
+            }
+            return WritePathOperationInfo(args);
         }
 
         if (args[0] == "info" && scenario.StartsWith("wc_conflict_", StringComparison.Ordinal))
@@ -246,6 +269,12 @@ internal static class Program
         if (args[0] == "status" && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
         {
             WriteWorkingCopyActionStatus();
+            return 0;
+        }
+
+        if (args[0] == "status" && scenario.StartsWith("wc_path_", StringComparison.Ordinal))
+        {
+            WritePathOperationStatus(args, scenario);
             return 0;
         }
 
@@ -623,6 +652,96 @@ internal static class Program
         Console.WriteLine($"<info><entry kind=\"file\" path=\"fixture\" revision=\"{baseRevision}\"><url>{url}</url><repository><root>svn://fixture</root>{uuidElement}</repository><wc-info><wcroot-abspath>{System.Security.SecurityElement.Escape(workingCopyRoot)}</wcroot-abspath></wc-info></entry></info>");
     }
 
+    private static int WritePathOperationInfo(string[] args)
+    {
+        var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+        var target = DecodeFakePegPath(args[^1]);
+        var expectedVersionedDestination = Environment.GetEnvironmentVariable(ScenarioVariable) == "wc_path_destination_versioned" &&
+            PathEqualsForFixture(target, Environment.GetEnvironmentVariable(PathOperationDestinationVariable) ?? string.Empty);
+        if (!Directory.Exists(target) && !File.Exists(target) && !expectedVersionedDestination)
+        {
+            Console.Error.WriteLine("svn: E155010: The node was not found.");
+            return 1;
+        }
+
+        var kind = Directory.Exists(target) ? "dir" : "file";
+        var relative = Path.GetRelativePath(root, target);
+        var url = "file:///fixture/repository/" + Uri.EscapeDataString(relative.Replace(Path.DirectorySeparatorChar, '/'));
+        Console.WriteLine($"<info><entry kind=\"{kind}\" path=\"{System.Security.SecurityElement.Escape(target)}\"><url>{url}</url><repository><root>file:///fixture/repository</root></repository><wc-info><wcroot-abspath>{System.Security.SecurityElement.Escape(root)}</wcroot-abspath><schedule>normal</schedule></wc-info></entry></info>");
+        return 0;
+    }
+
+    private static void WritePathOperationStatus(string[] args, string scenario)
+    {
+        var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+        var destination = Environment.GetEnvironmentVariable(PathOperationDestinationVariable) ?? string.Empty;
+        var hasDepth = args.Contains("--depth", StringComparer.Ordinal);
+        var target = hasDepth ? DecodeFakePegPath(args[^1]) : root;
+        var entries = new List<string>();
+
+        void Add(string path, string kind, string item = "normal", string properties = "none", string flags = "")
+        {
+            entries.Add($"<entry path=\"{System.Security.SecurityElement.Escape(path)}\" kind=\"{kind}\"><wc-status item=\"{item}\" revision=\"12\" props=\"{properties}\" {flags}/></entry>");
+        }
+
+        if (!hasDepth)
+        {
+            if (scenario == "wc_path_destination_scheduled")
+                Add(destination, "file", item: "deleted");
+            Console.WriteLine($"<status><target path=\"{System.Security.SecurityElement.Escape(root)}\">{string.Join(string.Empty, entries)}</target></status>");
+            return;
+        }
+
+        var targetKind = Directory.Exists(target) ? "dir" : "file";
+        var source = Environment.GetEnvironmentVariable(ActionPathVariable) ?? string.Empty;
+        var sourceItem = scenario switch
+        {
+            "wc_path_source_added" => "added",
+            "wc_path_source_missing" => "missing",
+            "wc_path_source_conflicted" => "conflicted",
+            _ => "normal",
+        };
+        var sourceFlags = scenario == "wc_path_source_switched" ? "switched=\"true\"" : string.Empty;
+        var sourceProperties = scenario == "wc_path_source_property_modified" ? "modified" : "none";
+        Add(target, targetKind, PathEqualsForFixture(target, source) ? sourceItem : "normal",
+            PathEqualsForFixture(target, source) ? sourceProperties : "none", PathEqualsForFixture(target, source) ? sourceFlags : string.Empty);
+
+        if (args.Contains("infinity", StringComparer.Ordinal) && targetKind == "dir")
+        {
+            var stack = new Stack<string>();
+            stack.Push(target);
+            while (stack.Count > 0)
+            {
+                foreach (var child in Directory.EnumerateFileSystemEntries(stack.Pop()))
+                {
+                    var childKind = Directory.Exists(child) ? "dir" : "file";
+                    var item = scenario is "wc_path_tree_unversioned" or "wc_path_tree_ignored"
+                        ? scenario == "wc_path_tree_unversioned" ? "unversioned" : "ignored"
+                        : "normal";
+                    Add(child, childKind, item);
+                    if (childKind == "dir")
+                        stack.Push(child);
+                }
+            }
+        }
+
+        Console.WriteLine($"<status><target path=\"{System.Security.SecurityElement.Escape(root)}\">{string.Join(string.Empty, entries)}</target></status>");
+    }
+
+    private static string DecodeFakePegPath(string path)
+    {
+        if (path.EndsWith("@@", StringComparison.Ordinal))
+            return path[..^1];
+        return path.EndsWith("@", StringComparison.Ordinal) ? path[..^1] : path;
+    }
+
+    private static string ExpectedPegOperand(string path) => path.Contains('@') ? path + "@" : path;
+
+    private static bool PathEqualsForFixture(string left, string right)
+    {
+        return left.Equals(right, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
     private static void WriteWorkingCopyStatus()
     {
         var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
@@ -775,6 +894,8 @@ internal static class Program
             await File.WriteAllTextAsync(Path.Combine(sameFolder, ".svn", "wc.db"), "fixture").ConfigureAwait(false);
             Equal(string.Empty, Svn.FindWorkingCopyRoot(sameFolder));
         }).ConfigureAwait(false);
+
+        await RunPathOperationFakeChecksAsync(executable, config, workingCopyPath, temp.Path).ConfigureAwait(false);
 
         await CheckAsync("working-copy info preserves canonical root text, uses XML, --, and an @ terminator", async () =>
         {
@@ -1373,18 +1494,29 @@ internal static class Program
             True(oversized.Before == null && oversized.After == null, "partial oversized content escaped as a snapshot");
 
             invocations = PrepareHistoryScenario(temp.Path, "changed_paths_file_diff_slow", workingCopyPath);
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            using var cancellation = new CancellationTokenSource();
+            var slowSnapshot = Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "overflow.dat",
+                cancellationToken: cancellation.Token, expectedUrl: expectedUrl);
+            var catStarted = false;
+            for (var attempt = 0; attempt < 500; attempt++)
+            {
+                catStarted = ReadInvocations(invocations).Any(call => call.Arguments[0] == "cat");
+                if (catStarted)
+                    break;
+                await Task.Delay(10).ConfigureAwait(false);
+            }
+            cancellation.Cancel();
             var cancelled = false;
             try
             {
-                await Svn.GetFileDiffAsync(executable, config, workingCopyPath, 6, scope + "overflow.dat",
-                    cancellationToken: cancellation.Token, expectedUrl: expectedUrl).ConfigureAwait(false);
+                await slowSnapshot.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 cancelled = true;
             }
 
+            True(catStarted, "the fake SVN client did not reach the content read before cancellation");
             True(cancelled, "caller cancellation was converted to a normal file-diff result");
             var cancelledCalls = ReadInvocations(invocations);
             Equal("cat", cancelledCalls[^1].Arguments[0]);
@@ -1923,6 +2055,13 @@ internal static class Program
             True(!Svn.CanAdd(new Svn.SvnWorkingCopyEntry("../outside.txt", "unversioned", "none", Kind: "file")), "traversal add entry was accepted");
             True(!Svn.CanAdd(new Svn.SvnWorkingCopyEntry("new.txt", "modified", "none", Kind: "file")), "versioned file was addable");
 
+            True(Svn.CanMoveOrCopy(new Svn.SvnWorkingCopyEntry("clean.txt", "normal", "none", Kind: "file")), "clean file was not movable or copyable");
+            True(Svn.CanMoveOrCopy(new Svn.SvnWorkingCopyEntry("property edit.txt", "normal", "modified", Kind: "file")), "property-edited file was not movable or copyable");
+            True(!Svn.CanMoveOrCopy(new Svn.SvnWorkingCopyEntry("added.txt", "added", "none", Kind: "file")), "scheduled addition was movable or copyable");
+            True(!Svn.CanMoveOrCopy(new Svn.SvnWorkingCopyEntry("copied.txt", "added", "none", IsCopied: true, Kind: "file")), "copied file was movable or copyable");
+            True(!Svn.CanMoveOrCopy(new Svn.SvnWorkingCopyEntry("switched.txt", "normal", "none", IsSwitched: true, Kind: "file")), "switched file was movable or copyable");
+            True(!Svn.CanMoveOrCopy(new Svn.SvnWorkingCopyEntry("move endpoint.txt", "deleted", "none", MovedTo: "new.txt", Kind: "file")), "move endpoint was movable or copyable");
+
             True(Svn.CanRemove(new Svn.SvnWorkingCopyEntry("modified.txt", "modified", "none", Kind: "file")), "text-modified file was not removable");
             True(Svn.CanRemove(new Svn.SvnWorkingCopyEntry("missing.txt", "missing", "none", Kind: "unknown")), "missing file with unknown kind was not removable");
             True(!Svn.CanRemove(null), "null remove entry was accepted");
@@ -1945,7 +2084,28 @@ internal static class Program
             True(Svn.CanRevert(new Svn.SvnWorkingCopyEntry(".", "normal", "modified", Kind: "dir")), "working-copy root property change was not revertible");
             True(!Svn.CanRevert(new Svn.SvnWorkingCopyEntry("conflict props", "normal", "conflicted", Kind: "file")), "property conflict was revertible");
             True(Svn.CanCommit(new Svn.SvnWorkingCopyEntry("property.txt", "normal", "modified", Kind: "file")), "property-only file was not committable");
-            True(!Svn.CanCommit(new Svn.SvnWorkingCopyEntry("copied.txt", "added", "none", IsCopied: true, Kind: "file")), "copied path was accepted without copy relationship coverage");
+            var copiedFile = new Svn.SvnWorkingCopyEntry("copied.txt", "added", "none", IsCopied: true, Kind: "file");
+            True(Svn.CanCommit(copiedFile), "a copied file was not a commit candidate");
+            True(Svn.CanCommitSelection(new[] { copiedFile }, new[] { copiedFile }, out var copyError),
+                $"a copied file could not be committed with its preserved ancestry: {copyError}");
+            var movedFrom = new Svn.SvnWorkingCopyEntry("old.txt", "deleted", "none", MovedTo: "new.txt", Kind: "file");
+            var movedTo = new Svn.SvnWorkingCopyEntry("new.txt", "added", "none", IsCopied: true, MovedFrom: "old.txt", Kind: "file");
+            True(Svn.CanCommit(movedFrom) && Svn.CanCommit(movedTo), "move endpoints were not both commit candidates");
+            True(!Svn.CanCommitSelection(new[] { movedTo }, new[] { movedFrom, movedTo }, out _),
+                "a move destination was committable without its explicitly selected source");
+            True(Svn.CanCommitSelection(new[] { movedFrom, movedTo }, new[] { movedFrom, movedTo }, out var moveError),
+                $"reciprocal move endpoints were not committable together: {moveError}");
+            var copiedDirectory = new Svn.SvnWorkingCopyEntry("copied folder", "added", "none", IsCopied: true, Kind: "dir");
+            var copiedChild = new Svn.SvnWorkingCopyEntry(Path.Combine("copied folder", "child.txt"), "normal", "none", IsCopied: true, Kind: "file");
+            True(Svn.CanCommit(copiedChild), "a normal copied directory child was not a commit candidate");
+            True(!Svn.CanCommitSelection(new[] { copiedDirectory }, new[] { copiedDirectory, copiedChild }, out _),
+                "a copied directory was committable without its complete explicit descendants");
+            True(Svn.CanCommitSelection(new[] { copiedDirectory, copiedChild }, new[] { copiedDirectory, copiedChild }, out var copyDirectoryError),
+                $"a complete copied directory scope was not committable: {copyDirectoryError}");
+            True(Svn.HasUnsafeCommitAncestor(copiedChild, new[] { copiedDirectory, copiedChild }, new[] { copiedChild }),
+                "an unselected copied directory ancestor was not treated as an unsafe commit boundary");
+            True(!Svn.HasUnsafeCommitAncestor(copiedChild, new[] { copiedDirectory, copiedChild }, new[] { copiedDirectory, copiedChild }),
+                "a selected copied directory ancestor blocked its coherent commit scope");
             True(!Svn.CanCommit(new Svn.SvnWorkingCopyEntry("missing.txt", "missing", "none", Kind: "file")), "missing path was committable");
             True(!Svn.CanCommit(new Svn.SvnWorkingCopyEntry("replaced.txt", "replaced", "none", Kind: "file")), "replacement was committable with an implicit old subtree");
             True(Svn.CanCommit(new Svn.SvnWorkingCopyEntry(".", "normal", "modified", Kind: "dir")), "working-copy root property change was not committable");
@@ -2612,6 +2772,159 @@ internal static class Program
         }).ConfigureAwait(false);
     }
 
+    private static async Task RunPathOperationFakeChecksAsync(
+        string executable,
+        string config,
+        string workingCopyPath,
+        string tempDirectory)
+    {
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(workingCopyPath))!;
+        var source = "source @ file.txt@";
+        var destination = "renamed @ 文档🌱.txt@";
+        await File.WriteAllTextAsync(Path.Combine(root, source), "local source bytes\n").ConfigureAwait(false);
+
+        await CheckAsync("move and copy use fresh local status, exact paths, and peg-safe operands", async () =>
+        {
+            var invocations = PreparePathOperationScenario(tempDirectory, "wc_path_ok", workingCopyPath, source, destination);
+            var move = await Svn.MoveAsync(executable, config, workingCopyPath, source, destination).ConfigureAwait(false);
+            Equal("Ready", move.Status);
+            var moveCall = ReadInvocations(invocations).Single(call => call.Arguments[0] == "move");
+            SequenceEqual(new[]
+            {
+                "move", "--non-interactive", "--no-auth-cache", "--config-dir", Path.GetFullPath(config), "--",
+                ExpectedPegOperand(Path.GetFullPath(Path.Combine(root, source))),
+                Path.GetFullPath(Path.Combine(root, destination)),
+            }, moveCall.Arguments);
+            True(!moveCall.Arguments.Contains("--force", StringComparer.Ordinal) &&
+                 !moveCall.Arguments.Contains("--parents", StringComparer.Ordinal),
+                "move enabled force or parent creation");
+
+            var copySource = "copy source @ file.txt";
+            var copyDestination = "copy target @ file.txt";
+            await File.WriteAllTextAsync(Path.Combine(root, copySource), "copy bytes\n").ConfigureAwait(false);
+            invocations = PreparePathOperationScenario(tempDirectory, "wc_path_ok", workingCopyPath, copySource, copyDestination);
+            var copy = await Svn.CopyAsync(executable, config, workingCopyPath, copySource, copyDestination).ConfigureAwait(false);
+            Equal("Ready", copy.Status);
+            var copyCall = ReadInvocations(invocations).Single(call => call.Arguments[0] == "copy");
+            SequenceEqual(new[]
+            {
+                "copy", "--non-interactive", "--no-auth-cache", "--config-dir", Path.GetFullPath(config), "--",
+                ExpectedPegOperand(Path.GetFullPath(Path.Combine(root, copySource))),
+                ExpectedPegOperand(Path.GetFullPath(Path.Combine(root, copyDestination))),
+            }, copyCall.Arguments);
+            True(!copyCall.Arguments.Contains("--force", StringComparer.Ordinal) &&
+                 !copyCall.Arguments.Contains("--parents", StringComparer.Ordinal),
+                "copy enabled force or parent creation");
+
+            var forwardSlashSource = "nested source @ folder/source.txt";
+            var forwardSlashDestination = "nested destination @ folder/moved.txt";
+            Directory.CreateDirectory(Path.Combine(root, "nested source @ folder"));
+            Directory.CreateDirectory(Path.Combine(root, "nested destination @ folder"));
+            await File.WriteAllTextAsync(Path.Combine(root, "nested source @ folder", "source.txt"), "nested bytes\n").ConfigureAwait(false);
+            invocations = PreparePathOperationScenario(tempDirectory, "wc_path_ok", workingCopyPath,
+                forwardSlashSource, forwardSlashDestination);
+            var nestedMove = await Svn.MoveAsync(executable, config, workingCopyPath,
+                forwardSlashSource, forwardSlashDestination).ConfigureAwait(false);
+            Equal("Ready", nestedMove.Status);
+            var nestedMoveCall = ReadInvocations(invocations).Single(call => call.Arguments[0] == "move");
+            SequenceEqual(new[]
+            {
+                "move", "--non-interactive", "--no-auth-cache", "--config-dir", Path.GetFullPath(config), "--",
+                ExpectedPegOperand(Path.GetFullPath(Path.Combine(root, "nested source @ folder", "source.txt"))),
+                Path.GetFullPath(Path.Combine(root, "nested destination @ folder", "moved.txt")),
+            }, nestedMoveCall.Arguments);
+
+            if (!OperatingSystem.IsWindows())
+            {
+                const string literalBackslashSource = "literal\\backslash @ source.txt";
+                const string literalBackslashDestination = "literal\\backslash @ destination.txt";
+                await File.WriteAllTextAsync(Path.Combine(root, literalBackslashSource), "literal backslash bytes\n").ConfigureAwait(false);
+                invocations = PreparePathOperationScenario(tempDirectory, "wc_path_ok", workingCopyPath,
+                    literalBackslashSource, literalBackslashDestination);
+                var literalBackslashMove = await Svn.MoveAsync(executable, config, workingCopyPath,
+                    literalBackslashSource, literalBackslashDestination).ConfigureAwait(false);
+                Equal("Ready", literalBackslashMove.Status);
+                True(ReadInvocations(invocations).Single(call => call.Arguments[0] == "move").Arguments[^1]
+                        .EndsWith(literalBackslashDestination, StringComparison.Ordinal),
+                    "Unix literal backslash was rewritten as a path separator");
+            }
+        }).ConfigureAwait(false);
+
+        await CheckAsync("path operation preflight refuses scheduled, switched, aliased, and existing destinations", async () =>
+        {
+            var destinationPath = Path.Combine(root, "already exists.txt");
+            await File.WriteAllTextAsync(destinationPath, "preserve destination\n").ConfigureAwait(false);
+            var invocations = PreparePathOperationScenario(tempDirectory, "wc_path_ok", workingCopyPath, source, "already exists.txt");
+            var existing = await Svn.CopyAsync(executable, config, workingCopyPath, source, "already exists.txt").ConfigureAwait(false);
+            Equal("DestinationExists", existing.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] is "move" or "copy"),
+                "an existing destination launched a path mutation");
+            Equal("preserve destination\n", await File.ReadAllTextAsync(destinationPath).ConfigureAwait(false));
+
+            foreach (var scenario in new[] { "wc_path_source_added", "wc_path_source_switched", "wc_path_destination_scheduled", "wc_path_destination_versioned" })
+            {
+                invocations = PreparePathOperationScenario(tempDirectory, scenario, workingCopyPath, source, "fresh target.txt");
+                var result = await Svn.MoveAsync(executable, config, workingCopyPath, source, "fresh target.txt").ConfigureAwait(false);
+                True(result.Status is "NotEligible" or "DestinationExists",
+                    $"unsafe {scenario} state returned {result.Status}: {result.Details}");
+                True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "move"),
+                    $"unsafe {scenario} state launched a move");
+            }
+
+            foreach (var invalid in new[] { "../outside.txt", ".svn/wc.db", "CON.txt", "name.", "nested//bad.txt" })
+            {
+                invocations = PreparePathOperationScenario(tempDirectory, "wc_path_ok", workingCopyPath, source, invalid);
+                var result = await Svn.CopyAsync(executable, config, workingCopyPath, source, invalid).ConfigureAwait(false);
+                Equal("InvalidPath", result.Status);
+                True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "copy"),
+                    $"unsafe destination {invalid} launched a copy");
+            }
+        }).ConfigureAwait(false);
+
+        await CheckAsync("directory path operations preserve untracked and ignored descendants", async () =>
+        {
+            foreach (var (scenario, childName) in new[]
+                     {
+                         ("wc_path_tree_unversioned", "untracked.txt"),
+                         ("wc_path_tree_ignored", "ignored.txt"),
+                     })
+            {
+                var directory = Path.Combine(root, "unsafe " + childName);
+                Directory.CreateDirectory(directory);
+                var child = Path.Combine(directory, childName);
+                const string bytes = "leave this unrelated byte sequence unchanged\n";
+                await File.WriteAllTextAsync(child, bytes).ConfigureAwait(false);
+                var relative = Path.GetRelativePath(root, directory);
+                var invocations = PreparePathOperationScenario(tempDirectory, scenario, workingCopyPath, relative, relative + " copy");
+                var result = await Svn.MoveAsync(executable, config, workingCopyPath, relative, relative + " copy").ConfigureAwait(false);
+                Equal("NotEligible", result.Status);
+                True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "move"),
+                    $"{scenario} descendant launched a directory move");
+                Equal(bytes, await File.ReadAllTextAsync(child).ConfigureAwait(false));
+            }
+        }).ConfigureAwait(false);
+
+        await CheckAsync("path operation cancellation reports possible partial working-copy changes", async () =>
+        {
+            var target = Path.Combine(root, "cancel source.txt");
+            await File.WriteAllTextAsync(target, "cancel source\n").ConfigureAwait(false);
+            var invocations = PreparePathOperationScenario(tempDirectory, "wc_path_slow", workingCopyPath,
+                "cancel source.txt", "cancel destination.txt");
+            using var cancellation = new CancellationTokenSource();
+            var operation = Svn.MoveAsync(executable, config, workingCopyPath,
+                "cancel source.txt", "cancel destination.txt", cancellation.Token);
+            for (var attempt = 0; attempt < 200 && !ReadInvocations(invocations).Any(call => call.Arguments[0] == "move"); attempt++)
+                await Task.Delay(10).ConfigureAwait(false);
+            var reachedMutation = ReadInvocations(invocations).Any(call => call.Arguments[0] == "move");
+            cancellation.Cancel();
+            var result = await operation.ConfigureAwait(false);
+            True(reachedMutation, "the fake SVN client never reached the move command");
+            Equal("Cancelled", result.Status);
+            True(result.Details.Contains("may have changed partially", StringComparison.Ordinal),
+                "post-start cancellation omitted the partial-mutation refresh notice");
+        }).ConfigureAwait(false);
+    }
+
     private static async Task RunIntegrationAsync()
     {
         var svn = FindExecutable("svn");
@@ -2648,6 +2961,7 @@ internal static class Program
                 "[global]\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
 
             await RunWorkingCopyActionIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
+            await RunPathOperationIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunWorkingCopyConflictIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
 
             var publicUrl = $"svn://127.0.0.1:{port}/public";
@@ -3523,6 +3837,151 @@ internal static class Program
             $"[{Path.GetFileName(repository)}:/]\nalice = rw\n* = {(anonymousAccess == "read" ? "r" : string.Empty)}\n");
     }
 
+    private static async Task RunPathOperationIntegrationAsync(string svn, string svnadmin, string tempDirectory)
+    {
+        var root = Path.Combine(tempDirectory, "path operations @");
+        var repository = Path.Combine(root, "repository");
+        var seed = Path.Combine(root, "seed");
+        var config = Path.Combine(root, "client config");
+        var workingCopy = Path.Combine(root, "working copy @");
+        var sourceFolder = "copy source @ folder";
+        var movingFolder = "move source @ folder";
+        var unsafeFolder = "unsafe source folder";
+        var forwardSlashSourceFolder = "forward slash source @ folder";
+        var forwardSlashDestinationFolder = "forward slash destination @ folder";
+        Directory.CreateDirectory(Path.Combine(seed, sourceFolder));
+        Directory.CreateDirectory(Path.Combine(seed, movingFolder));
+        Directory.CreateDirectory(Path.Combine(seed, unsafeFolder));
+        Directory.CreateDirectory(Path.Combine(seed, forwardSlashSourceFolder));
+        Directory.CreateDirectory(Path.Combine(seed, forwardSlashDestinationFolder));
+        Directory.CreateDirectory(config);
+        const string fileBase = "base move contents\n";
+        const string copyBase = "base copied contents\n";
+        await File.WriteAllTextAsync(Path.Combine(seed, "source @ file.txt@"), fileBase).ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, sourceFolder, "child @ Unicode🌱.txt"), copyBase).ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, movingFolder, "child.txt"), "folder move child\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, unsafeFolder, "tracked.txt"), "tracked unsafe folder child\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, forwardSlashSourceFolder, "nested @ source.txt"), "forward slash source bytes\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(config, "config"),
+            "[miscellany]\nglobal-ignores = *.ignored\n").ConfigureAwait(false);
+
+        await RunRequiredAsync(svnadmin, "create", repository).ConfigureAwait(false);
+        var repositoryUrl = new Uri(repository).AbsoluteUri;
+        await RunRequiredAsync(svn, "import", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--message", "Create path operation fixture", seed, repositoryUrl).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            repositoryUrl, workingCopy).ConfigureAwait(false);
+
+        var moveSourceRelative = "source @ file.txt@";
+        var moveDestinationRelative = "moved @ Unicode🌱 note.txt@";
+        var moveSource = Path.Combine(workingCopy, moveSourceRelative);
+        var moveDestination = Path.Combine(workingCopy, moveDestinationRelative);
+        const string localMoveEdit = "local text edit preserved\n";
+        await File.AppendAllTextAsync(moveSource, localMoveEdit).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "propset", "sourcegit:local", "local property value", "--", ExpectedPegOperand(moveSource))
+            .ConfigureAwait(false);
+
+        var copySourceFile = Path.Combine(workingCopy, sourceFolder, "child @ Unicode🌱.txt");
+        const string localCopyEdit = "local child edit preserved\n";
+        await File.AppendAllTextAsync(copySourceFile, localCopyEdit).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "propset", "sourcegit:local", "copied local property", "--", ExpectedPegOperand(copySourceFile))
+            .ConfigureAwait(false);
+
+        var forwardSlashSource = $"{forwardSlashSourceFolder}/nested @ source.txt";
+        var forwardSlashDestination = $"{forwardSlashDestinationFolder}/moved @ destination.txt";
+        var forwardSlashSourceNative = Path.Combine(forwardSlashSourceFolder, "nested @ source.txt");
+        var forwardSlashDestinationNative = Path.Combine(forwardSlashDestinationFolder, "moved @ destination.txt");
+        var forwardSlashSourcePath = Path.Combine(workingCopy, forwardSlashSourceNative);
+        var forwardSlashDestinationPath = Path.Combine(workingCopy, forwardSlashDestinationNative);
+        const string forwardSlashEdit = "nested forward slash edit preserved\n";
+        await File.AppendAllTextAsync(forwardSlashSourcePath, forwardSlashEdit).ConfigureAwait(false);
+
+        var unsafeFile = Path.Combine(workingCopy, unsafeFolder, "untracked bytes.txt");
+        var ignoredFile = Path.Combine(workingCopy, unsafeFolder, "ignored bytes.ignored");
+        const string unsafeBytes = "untracked bytes remain unchanged\n";
+        const string ignoredBytes = "ignored bytes remain unchanged\n";
+        await File.WriteAllTextAsync(unsafeFile, unsafeBytes).ConfigureAwait(false);
+        await File.WriteAllTextAsync(ignoredFile, ignoredBytes).ConfigureAwait(false);
+
+        var refusedCopy = await Svn.CopyAsync(svn, config, workingCopy, unsafeFolder, "unsafe copy target").ConfigureAwait(false);
+        Equal("NotEligible", refusedCopy.Status);
+        True(!Directory.Exists(Path.Combine(workingCopy, "unsafe copy target")),
+            "copying an unsafe tree created a destination");
+        Equal(unsafeBytes, await File.ReadAllTextAsync(unsafeFile).ConfigureAwait(false));
+        Equal(ignoredBytes, await File.ReadAllTextAsync(ignoredFile).ConfigureAwait(false));
+
+        var moved = await Svn.MoveAsync(svn, config, workingCopy, moveSourceRelative, moveDestinationRelative).ConfigureAwait(false);
+        True(moved.Status == "Ready", $"move returned {moved.Status}: {moved.Details}");
+        True(!File.Exists(moveSource), "move left the source file in place");
+        Equal(fileBase + localMoveEdit, await File.ReadAllTextAsync(moveDestination).ConfigureAwait(false));
+        Equal("local property value", (await RunCaptureAsync(svn, "propget", "sourcegit:local", "--non-interactive",
+            "--no-auth-cache", "--config-dir", config, "--", ExpectedPegOperand(moveDestination)).ConfigureAwait(false)).StandardOutput.Trim());
+
+        var forwardSlashMoved = await Svn.MoveAsync(svn, config, workingCopy,
+            forwardSlashSource, forwardSlashDestination).ConfigureAwait(false);
+        True(forwardSlashMoved.Status == "Ready", $"nested forward-slash move returned {forwardSlashMoved.Status}: {forwardSlashMoved.Details}");
+        True(!File.Exists(forwardSlashSourcePath), "nested forward-slash move left the source in place");
+        Equal("forward slash source bytes\n" + forwardSlashEdit,
+            await File.ReadAllTextAsync(forwardSlashDestinationPath).ConfigureAwait(false));
+
+        var copiedFolderRelative = "copied @ folder";
+        var copiedFolder = Path.Combine(workingCopy, copiedFolderRelative);
+        var copied = await Svn.CopyAsync(svn, config, workingCopy, sourceFolder, copiedFolderRelative).ConfigureAwait(false);
+        True(copied.Status == "Ready", $"directory copy returned {copied.Status}: {copied.Details}");
+        var copiedChild = Path.Combine(copiedFolder, "child @ Unicode🌱.txt");
+        Equal(copyBase + localCopyEdit, await File.ReadAllTextAsync(copiedChild).ConfigureAwait(false));
+        Equal("copied local property", (await RunCaptureAsync(svn, "propget", "sourcegit:local", "--non-interactive",
+            "--no-auth-cache", "--config-dir", config, "--", ExpectedPegOperand(copiedChild)).ConfigureAwait(false)).StandardOutput.Trim());
+
+        var movedFolderRelative = "moved @ folder";
+        var movedFolder = Path.Combine(workingCopy, movedFolderRelative);
+        var movedDirectory = await Svn.MoveAsync(svn, config, workingCopy, movingFolder, movedFolderRelative).ConfigureAwait(false);
+        True(movedDirectory.Status == "Ready", $"directory move returned {movedDirectory.Status}: {movedDirectory.Details}");
+        True(!Directory.Exists(Path.Combine(workingCopy, movingFolder)), "directory move left the source folder in place");
+        Equal("folder move child\n", await File.ReadAllTextAsync(Path.Combine(movedFolder, "child.txt")).ConfigureAwait(false));
+
+        var status = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        Equal("Ready", status.Status);
+        var scopedRoots = new[]
+        {
+            moveSourceRelative, moveDestinationRelative,
+            forwardSlashSourceNative, forwardSlashDestinationNative,
+            copiedFolderRelative,
+            movingFolder, movedFolderRelative,
+        };
+        var selected = status.Entries.Where(entry => scopedRoots.Any(scope =>
+            PathEqualsForFixture(entry.Path, scope) || entry.Path.StartsWith(scope + Path.DirectorySeparatorChar,
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))).ToArray();
+        True(selected.Length > 0, "local path operations produced no selectable commit entries");
+        True(Svn.CanCommitSelection(selected, status.Entries, out var selectionError),
+            $"coherent move/copy selection failed preflight: {selectionError}");
+        var committed = await Svn.CommitAsync(svn, config, workingCopy, selected.Select(entry => entry.Path).ToArray(),
+            "Commit ancestry-preserving path operations").ConfigureAwait(false);
+        True(committed.Status == "Ready", $"move/copy commit returned {committed.Status}: {committed.Details}");
+
+        var log = await RunCaptureAsync(svn, "log", "--xml", "--verbose", "--limit", "1", "--non-interactive",
+            "--no-auth-cache", "--config-dir", config, "--", repositoryUrl + "@").ConfigureAwait(false);
+        var copiedFromPaths = XDocument.Parse(log.StandardOutput).Descendants("path")
+            .Select(path => path.Attribute("copyfrom-path")?.Value)
+            .Where(path => !string.IsNullOrEmpty(path))
+            .ToArray();
+        True(copiedFromPaths.Contains("/source @ file.txt@", StringComparer.Ordinal),
+            "file move commit lost the source copy ancestry");
+        True(copiedFromPaths.Contains("/" + sourceFolder, StringComparer.Ordinal),
+            "directory copy commit lost its source ancestry");
+        True(copiedFromPaths.Contains("/" + movingFolder, StringComparer.Ordinal),
+            "directory move commit lost its source ancestry");
+        True(copiedFromPaths.Contains("/" + forwardSlashSourceFolder + "/nested @ source.txt", StringComparer.Ordinal),
+            "nested forward-slash move commit lost its source ancestry");
+        Equal(fileBase + localMoveEdit, await File.ReadAllTextAsync(moveDestination).ConfigureAwait(false));
+        Equal(copyBase + localCopyEdit, await File.ReadAllTextAsync(copiedChild).ConfigureAwait(false));
+        Equal("forward slash source bytes\n" + forwardSlashEdit,
+            await File.ReadAllTextAsync(forwardSlashDestinationPath).ConfigureAwait(false));
+        Equal(unsafeBytes, await File.ReadAllTextAsync(unsafeFile).ConfigureAwait(false));
+        Equal(ignoredBytes, await File.ReadAllTextAsync(ignoredFile).ConfigureAwait(false));
+        s_passed += 8;
+    }
+
     private static async Task CreateLocalHistoryAsync(string svn, string repositoryUrl, string directory)
     {
         var seed = Path.Combine(directory, "history seed");
@@ -3720,6 +4179,20 @@ internal static class Program
         if (scenario == "history_trailing_wcroot")
             workingCopyRoot += " ";
         Environment.SetEnvironmentVariable(WorkingCopyRootVariable, workingCopyRoot);
+        return calls;
+    }
+
+    private static string PreparePathOperationScenario(
+        string directory,
+        string scenario,
+        string workingCopyPath,
+        string sourceRelativePath,
+        string destinationRelativePath)
+    {
+        var calls = PrepareHistoryScenario(directory, scenario, workingCopyPath);
+        var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+        Environment.SetEnvironmentVariable(ActionPathVariable, Path.GetFullPath(sourceRelativePath, root));
+        Environment.SetEnvironmentVariable(PathOperationDestinationVariable, Path.GetFullPath(destinationRelativePath, root));
         return calls;
     }
 

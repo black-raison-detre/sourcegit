@@ -9,7 +9,7 @@ dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj
 The project has no package dependencies. It compiles the production `Svn.cs`,
 `Svn.Connection.cs`, `Svn.History.cs`, `Svn.ChangedPaths.cs`,
 `Svn.FileDiff.cs`, `Svn.Status.cs`, `Svn.Actions.cs`, `Svn.Undo.cs`, and
-`Svn.Conflicts.cs` files directly and uses its own apphost as a fake SVN CLI, so
+`Svn.Conflicts.cs` and `Svn.PathOperations.cs` files directly and uses its own apphost as a fake SVN CLI, so
 the focused checks do not need Subversion installed.
 
 The fake-client checks cover working-copy root discovery and Git precedence,
@@ -50,6 +50,16 @@ temporary data is retained with an error, and that a post-revert symlink leaves
 the original bytes and recovery manifest available with their paths reported for
 failure and cancellation. Symlink-specific checks run where the test filesystem
 supports symlinks. Fake command cancellation checks also verify child termination.
+
+Path-operation checks exercise the production local Move and Copy APIs, including
+clean tracked sources, local text/property edits, exact destination paths, and
+fresh status/metadata validation. Destination argument handling differs between
+SVN move (literal destination) and copy (peg-escaped destination); real fixtures
+check embedded and trailing `@` names. Unsafe parents and directory descendants,
+collisions, pending schedules, symlinks, nested working copies, and untracked or
+ignored children are refused. Commit checks require reciprocal move endpoints
+and complete copied/moved directory selections, and verify recorded copy ancestry
+while preserving unchecked edits.
 
 Local text diffs use SVN's internal diff engine and bounded UTF-8 patches;
 invalid UTF-8 or NUL-containing patches are reported as binary. Whitespace

@@ -47,6 +47,8 @@ internal static partial class Program
             Directory.CreateDirectory(config);
             if (args.Contains("--conflicts-only", StringComparer.Ordinal))
                 return await RunConflictsOnly(temporary, config);
+            if (args.Contains("--path-operations-only", StringComparer.Ordinal))
+                return await RunPathOperationsOnly(temporary, config);
             var localWorkingCopy = await CreateLocalWorkingCopyFixture(temporary, config);
             if (args.Contains("--local-only", StringComparer.Ordinal))
                 return await RunLocalOnly(temporary, config, localWorkingCopy);
@@ -883,8 +885,8 @@ internal static partial class Program
         Check(!entries.CanAdd && !entries.CanRemove && !entries.CanRevert && !entries.CanCommit,
             "conflicted rows are excluded from all selected operations");
         await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "copied.txt"));
-        Check(!entries.CanAdd && !entries.CanRemove && !entries.CanRevert && !entries.CanCommit,
-            "copy ancestry is excluded from selected actions");
+        Check(!entries.CanAdd && !entries.CanRemove && !entries.CanRevert && entries.CanCommit,
+            "copy ancestry can be committed while discard and scheduling actions remain excluded");
         await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "unversioned.txt"));
         Dispatcher.UIThread.RunJobs();
         Check(selectedActions.IsEnabled && entries.CanAdd && !entries.CanRemove && !entries.CanUndo &&
@@ -1041,6 +1043,8 @@ internal static partial class Program
             Path.Combine(Path.GetDirectoryName(workingCopy), "local-status-remote-copy"),
             Preferences.Instance.SvnConfigDirectory, screenshotDirectory, selectedActions);
         await VerifyConflictUi(window, Path.GetDirectoryName(workingCopy),
+            Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
+        await VerifyPathOperationUi(window, Path.GetDirectoryName(workingCopy),
             Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
     }
 

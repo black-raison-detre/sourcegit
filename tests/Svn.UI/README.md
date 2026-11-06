@@ -20,6 +20,20 @@ To run only conflict inspection and resolution checks and their rendered dialogs
 dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --conflicts-only
 ```
 
+To run only Rename, Move, Copy, and their Commit workflow with rendered dialogs:
+
+```sh
+dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --path-operations-only
+```
+
+The file-operation fixture chooses clean tracked sources outside the changed-only
+grid, verifies exact destination previews, rejects invalid names and folder
+self-copies, and checks that moves retain local text and property edits. It
+exercises stale-source failure and explicit retry, move-pair commit selection,
+directory copying, and preservation of unrelated unversioned bytes. Minimum-size
+dialogs, error recovery, and status results are rendered in both themes. Native
+file/folder picker integration still requires desktop testing.
+
 The harness creates a disposable local repository with 104 revisions and a
 working-copy path containing spaces (including a trailing space), Unicode, and `@`.
 A second `file://` repository supplies local-only status and diff cases, including
@@ -108,3 +122,15 @@ The resolution applies to all conflicts on that path. Repair tree conflicts
 manually before acknowledging them. After editing a file or its properties
 outside the dialog, reload and review the snapshot before marking it resolved.
 SVN over SSH remains outside this increment.
+
+Use **File operations…** in the Working copy tab to choose a clean file or folder,
+or choose **Rename…**, **Move…**, or **Copy…** from a selected changed row's action
+menu. Paths are relative to the working-copy root. Rename takes a new name;
+Move and Copy take the complete new path, including its filename or folder name.
+The destination must be unused and its parent already versioned. These operations
+retain SVN history and remain pending until committed. Select both ends of a
+move in Commit. Unsupported scheduled, conflicted, external, switched, or unsafe
+sources must be handled separately; directory operations do not silently include
+unversioned or ignored children. Mixed-revision source trees are refused in this
+increment; update the source tree to a consistent revision first. Case-only
+renames that collide with the existing path are also refused.
