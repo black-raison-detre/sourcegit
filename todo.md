@@ -19,19 +19,31 @@
 - [x] Show working-copy status and read-only local content/property diffs, including unversioned, missing, conflicted, copied, moved, and replaced paths. Keep local inspection available independently of remote history and authentication.
 - [x] Cache revision-history pages and changed-file lists on disk for five minutes; reuse them when opening tabs or revisiting revisions, and bypass the cache on explicit Refresh.
 
-## Next: working-copy actions
+## Working-copy actions
 
 - [x] Add selected unversioned paths and schedule removal of selected tracked/missing paths while keeping local files; confirm removal and refresh local status after actions.
-- [x] Undo pending additions and removals before commit while preserving local file contents. Leave generic discard/revert of other local edits for a separate action.
-- [ ] Add deliberate user actions for commit, update, and revert, with appropriate confirmation for discarded edits.
+- [x] Undo pending additions and removals before commit while preserving local file contents; use the separate Revert action to discard ordinary local edits.
+- [x] Organize whole-working-copy actions in the repository toolbar, selected-path actions in shared menus, and revision actions in History; support bulk selection.
+- [x] Add explicit local Revert with a path/scope confirmation, keeping Undo Add/Remove as content-preserving scheduling actions.
+- [x] Add whole-working-copy Update and Update to revision, including an entry from the selected history revision.
+- [x] Add Commit with a reviewed, explicit path selection and required message; leave unchecked changes uncommitted.
 
 ## Later increments
 
 - [ ] Add conflict inspection and resolution workflows.
+- [ ] Add SVN-aware Rename/Move/Copy, Ignore, editable Properties, and Changelists.
+- [ ] Add Cleanup and missing-file/rename repair workflows with explicit scope.
 - [ ] Add checkout and remote repository browsing as separate entry points from opening an existing working copy.
 - [ ] Support SVN over SSH with explicit key/agent integration.
 - [ ] Add revision search/filtering and navigation by revision number or path.
-- [ ] Define and implement SVN-specific branch/tag, merge, property, and lock workflows as needed; keep Git-only actions out of SVN views.
+- [ ] Define and implement SVN-specific Branch/Tag, Switch/Merge, and Lock/Unlock workflows; keep Git-only actions out of SVN views.
+- [ ] Add Blame, revision comparisons, Export, and patch creation/application workflows.
+
+## First working-copy increment verification (2026-11-06)
+
+- [x] Release build and formatting verification on macOS arm64 with .NET 10.0.400 and SVN 1.14.5.
+- [x] 60 portable backend regression groups and authenticated local `svnserve` integration, including unsafe-path/ancestor rejection, exact commit selection, missing-file removal/commit, and Unicode commit messages.
+- [x] 213 focused and 350 full headless UI checks, including pointer/keyboard paths, multi-selection, confirmation/cancellation, Update/Revert/Commit, and failed-commit draft recovery. Rendered working-copy and dialog screenshots inspected in both themes, including the compact layout.
 
 ## Remaining validation
 

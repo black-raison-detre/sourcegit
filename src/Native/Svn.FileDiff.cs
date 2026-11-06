@@ -350,10 +350,13 @@ namespace SourceGit.Native
             IReadOnlyList<string> arguments,
             Credentials credentials,
             int outputLimit,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            TimeSpan? commandTimeout = null,
+            bool killOnOutputLimit = true)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(s_connectionTimeout);
+            var effectiveTimeout = commandTimeout ?? s_connectionTimeout;
+            timeout.CancelAfter(effectiveTimeout);
 
             using var process = new System.Diagnostics.Process();
             process.StartInfo = new System.Diagnostics.ProcessStartInfo
@@ -380,7 +383,7 @@ namespace SourceGit.Native
                 if (!started)
                     return new FileCommandResult("FailedToStart", -1, Array.Empty<byte>(), false, "The Subversion process could not be started.", false);
 
-                var stdout = ReadBoundedBytesAsync(process.StandardOutput.BaseStream, outputLimit, process, timeout.Token);
+                var stdout = ReadBoundedBytesAsync(process.StandardOutput.BaseStream, outputLimit, process, timeout.Token, killOnOutputLimit);
                 var stderr = ReadBoundedOutputAsync(process.StandardError, 128 * 1024, timeout.Token);
                 var wait = process.WaitForExitAsync(timeout.Token);
                 var sendPassword = credentials == null ? Task.CompletedTask : SendPasswordAsync(process, credentials.Password, timeout.Token);
@@ -390,7 +393,8 @@ namespace SourceGit.Native
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return new FileCommandResult("TimedOut", -1, Array.Empty<byte>(), false, "The Subversion command exceeded 30 seconds.", false);
+                return new FileCommandResult("TimedOut", -1, Array.Empty<byte>(), false,
+                    $"The Subversion command exceeded {effectiveTimeout.TotalSeconds.ToString(CultureInfo.InvariantCulture)} seconds.", false);
             }
             catch (OperationCanceledException)
             {
@@ -425,7 +429,8 @@ namespace SourceGit.Native
             Stream stream,
             int limit,
             System.Diagnostics.Process process,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool killOnOutputLimit)
         {
             using var content = new MemoryStream(Math.Min(limit, 64 * 1024));
             var buffer = new byte[64 * 1024];
@@ -443,16 +448,19 @@ namespace SourceGit.Native
                 if (keep < read)
                 {
                     truncated = true;
-                    try
+                    if (killOnOutputLimit)
                     {
-                        if (!process.HasExited)
-                            process.Kill(true);
+                        try
+                        {
+                            if (!process.HasExited)
+                                process.Kill(true);
+                        }
+                        catch
+                        {
+                            // The child may have exited while the output limit was reached.
+                        }
+                        break;
                     }
-                    catch
-                    {
-                        // The child may have exited while the output limit was reached.
-                    }
-                    break;
                 }
             }
 

@@ -72,7 +72,7 @@ internal static class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "add" or "delete" or "revert" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "update" or "commit" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -91,8 +91,17 @@ internal static class Program
             : null;
         await RecordInvocationAsync(invocationPath, args, input).ConfigureAwait(false);
 
-        if ((args[0] is "add" or "delete" or "revert") && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
+        if ((args[0] is "add" or "delete" or "revert" or "update" or "commit") && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
         {
+            if (scenario == "wc_action_noisy" && args[0] == "update")
+            {
+                Console.Out.Write(new string('x', 140 * 1024));
+                Console.Out.Flush();
+                Console.Error.WriteLine("completed-after-noisy-output");
+                if (!string.IsNullOrEmpty(invocationPath))
+                    await File.WriteAllTextAsync(invocationPath + ".completed", "drained").ConfigureAwait(false);
+                return 0;
+            }
             if (args[0] == "revert" && scenario.StartsWith("wc_action_undo_", StringComparison.Ordinal))
             {
                 var target = args[^1];
@@ -596,7 +605,13 @@ internal static class Program
         var externalChild = Environment.GetEnvironmentVariable(ScenarioVariable) == "wc_action_external"
             ? $"<entry path=\"{System.Security.SecurityElement.Escape(Path.Combine(target, "linked.txt"))}\" kind=\"file\"><wc-status item=\"missing\" revision=\"12\" props=\"none\" file-external=\"true\"/></entry>"
             : string.Empty;
-        Console.WriteLine($"<status><target path=\"{System.Security.SecurityElement.Escape(root)}\"><entry path=\"{System.Security.SecurityElement.Escape(target)}\"{kindAttribute}><wc-status item=\"{System.Security.SecurityElement.Escape(item)}\" revision=\"12\" props=\"{System.Security.SecurityElement.Escape(properties)}\"/></entry>{externalChild}</target></status>");
+        var deletedDescendant = Environment.GetEnvironmentVariable(ScenarioVariable) is "wc_action_deleted_directory" or "wc_action_deleted_unknown_directory"
+            ? $"<entry path=\"{System.Security.SecurityElement.Escape(Path.Combine(target, "deleted child.txt"))}\" kind=\"file\"><wc-status item=\"deleted\" revision=\"12\" props=\"none\"/></entry>"
+            : string.Empty;
+        var switchedAncestor = Environment.GetEnvironmentVariable(ScenarioVariable) == "wc_action_switched_ancestor"
+            ? $"<entry path=\"{System.Security.SecurityElement.Escape(Path.GetDirectoryName(target) ?? string.Empty)}\" kind=\"dir\"><wc-status item=\"normal\" revision=\"12\" props=\"none\" switched=\"true\"/></entry>"
+            : string.Empty;
+        Console.WriteLine($"<status><target path=\"{System.Security.SecurityElement.Escape(root)}\"><entry path=\"{System.Security.SecurityElement.Escape(target)}\"{kindAttribute}><wc-status item=\"{System.Security.SecurityElement.Escape(item)}\" revision=\"12\" props=\"{System.Security.SecurityElement.Escape(properties)}\"/></entry>{externalChild}{deletedDescendant}{switchedAncestor}</target></status>");
     }
 
     private static bool HasWorkingCopyLinkFixtures(string root)
@@ -1664,6 +1679,142 @@ internal static class Program
             True(!Svn.CanUndo(new Svn.SvnWorkingCopyEntry("move.txt", "deleted", "none", MovedTo: "new.txt", Kind: "file")), "moved deletion was undoable");
             True(!Svn.CanUndo(new Svn.SvnWorkingCopyEntry(".svn/wc.db", "deleted", "none", Kind: "file")), "administrative path was undoable");
             True(!Svn.CanUndo(new Svn.SvnWorkingCopyEntry(".", "added", "none", Kind: "dir")), "working-copy root was undoable");
+
+            True(Svn.CanRevert(new Svn.SvnWorkingCopyEntry("property.txt", "normal", "modified", Kind: "file")), "property-only file was not revertible");
+            True(Svn.CanRevert(new Svn.SvnWorkingCopyEntry("missing dir", "missing", "none", Kind: "dir")), "missing tracked directory was not revertible");
+            True(Svn.CanRevert(new Svn.SvnWorkingCopyEntry(".", "normal", "modified", Kind: "dir")), "working-copy root property change was not revertible");
+            True(!Svn.CanRevert(new Svn.SvnWorkingCopyEntry("conflict props", "normal", "conflicted", Kind: "file")), "property conflict was revertible");
+            True(Svn.CanCommit(new Svn.SvnWorkingCopyEntry("property.txt", "normal", "modified", Kind: "file")), "property-only file was not committable");
+            True(!Svn.CanCommit(new Svn.SvnWorkingCopyEntry("copied.txt", "added", "none", IsCopied: true, Kind: "file")), "copied path was accepted without copy relationship coverage");
+            True(!Svn.CanCommit(new Svn.SvnWorkingCopyEntry("missing.txt", "missing", "none", Kind: "file")), "missing path was committable");
+            True(!Svn.CanCommit(new Svn.SvnWorkingCopyEntry("replaced.txt", "replaced", "none", Kind: "file")), "replacement was committable with an implicit old subtree");
+            True(Svn.CanCommit(new Svn.SvnWorkingCopyEntry(".", "normal", "modified", Kind: "dir")), "working-copy root property change was not committable");
+            var childBelowRoot = new Svn.SvnWorkingCopyEntry(Path.Combine("folder", "child.txt"), "modified", "none", Kind: "file");
+            True(Svn.HasUnsafeOperationAncestor(childBelowRoot,
+                new[] { new Svn.SvnWorkingCopyEntry(".", "normal", "none", IsSwitched: true, Kind: "dir") }),
+                "working-copy root switched state was not treated as an ancestor boundary");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("recursive revert refuses an injected Subversion administrative directory", async () =>
+        {
+            var invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                Path.Combine(".svn", "injected-change.txt"), "modified", "none", "file");
+            var result = await Svn.RevertAsync(executable, config, workingCopyPath, new[] { ".svn" }).ConfigureAwait(false);
+            Equal("NotEligible", result.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "revert"),
+                "an injected .svn directory launched recursive revert");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("update and explicit commit use bounded noninteractive commands and protect credentials", async () =>
+        {
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_action_ok", workingCopyPath);
+            var invalidRevision = await Svn.UpdateAsync(executable, config, workingCopyPath, "HEAD;--force").ConfigureAwait(false);
+            Equal("InvalidArgument", invalidRevision.Status);
+            Equal(0, ReadInvocations(invocations).Count);
+
+            invocations = PrepareHistoryScenario(temp.Path, "wc_action_ok", workingCopyPath);
+            var update = await Svn.UpdateAsync(executable, config, workingCopyPath, "12").ConfigureAwait(false);
+            Equal("Ready", update.Status);
+            var updateCall = ReadInvocations(invocations).Single(call => call.Arguments[0] == "update");
+            Equal("12", ArgumentAfter(updateCall, "--revision"));
+            True(updateCall.Arguments.Contains("--ignore-externals", StringComparer.Ordinal), "update did not ignore externals");
+            True(updateCall.Arguments.Contains("--non-interactive", StringComparer.Ordinal), "update could prompt interactively");
+            True(!updateCall.Arguments.Contains("--force", StringComparer.Ordinal), "update forced conflict resolution");
+            Equal(Path.GetDirectoryName(Path.GetDirectoryName(workingCopyPath)) + "@", updateCall.Arguments[^1]);
+
+            invocations = PrepareHistoryScenario(temp.Path, "wc_action_ok", workingCopyPath);
+            var changedUrl = await Svn.UpdateAsync(executable, config, workingCopyPath, "HEAD",
+                new Svn.Credentials("test-user", "update-secret", false), expectedUrl: "svn://wrong/repository").ConfigureAwait(false);
+            Equal("WorkingCopyChanged", changedUrl.Status);
+            True(ReadInvocations(invocations).All(call => call.Arguments[0] != "update" && !call.StdinReceived),
+                "credentials were sent to a changed working-copy URL");
+
+            var statusRoot = Path.GetDirectoryName(Path.GetDirectoryName(workingCopyPath));
+            var switchedChild = Path.Combine("directory change", "modified child.txt");
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_switched_ancestor", workingCopyPath,
+                switchedChild, "modified", "none", "file");
+            var switchedRevert = await Svn.RevertAsync(executable, config, workingCopyPath,
+                new[] { switchedChild }).ConfigureAwait(false);
+            Equal("NotEligible", switchedRevert.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "revert"),
+                "a child edit beneath a switched directory launched recursive revert");
+
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_switched_ancestor", workingCopyPath,
+                switchedChild, "modified", "none", "file");
+            var switchedCommit = await Svn.CommitAsync(executable, config, workingCopyPath,
+                new[] { switchedChild }, "Do not commit across switched boundary").ConfigureAwait(false);
+            Equal("NotEligible", switchedCommit.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "commit"),
+                "a child edit beneath a switched directory launched commit");
+
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                "modified @ file.txt", "modified", "none", "file");
+            var commit = await Svn.CommitAsync(executable, config, workingCopyPath,
+                new[] { "modified @ file.txt" }, "Reviewed selection: café 中文").ConfigureAwait(false);
+            Equal("Ready", commit.Status);
+            var commitCall = ReadInvocations(invocations).Single(call => call.Arguments[0] == "commit");
+            Equal("empty", ArgumentAfter(commitCall, "--depth"));
+            Equal("UTF-8", ArgumentAfter(commitCall, "--encoding"));
+            Equal(Path.Combine(statusRoot, "modified @ file.txt") + "@", commitCall.Arguments[^1]);
+            True(commitCall.Arguments.Contains("--file", StringComparer.Ordinal), "commit message was not passed by protected file");
+            True(!commitCall.Arguments.Contains("Reviewed selection: café 中文", StringComparer.Ordinal), "commit message was exposed in command arguments");
+            True(!File.Exists(ArgumentAfter(commitCall, "--file")), "temporary commit message file was not removed");
+
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_ok", workingCopyPath,
+                "modified @ file.txt", "modified", "none", "file");
+            var staleSelection = await Svn.CommitAsync(executable, config, workingCopyPath,
+                new[] { "modified @ file.txt", "stale.txt" }, "Reviewed selection").ConfigureAwait(false);
+            Equal("NotEligible", staleSelection.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "commit"), "commit ran after one selected path failed validation");
+
+            var deletedDirectory = "directory change";
+            var deletedChild = Path.Combine(deletedDirectory, "deleted child.txt");
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_deleted_directory", workingCopyPath,
+                deletedDirectory, "deleted", "none", "dir");
+            var omittedDeletion = await Svn.CommitAsync(executable, config, workingCopyPath,
+                new[] { deletedDirectory }, "Reviewed directory deletion").ConfigureAwait(false);
+            Equal("NotEligible", omittedDeletion.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "commit"),
+                "unchecked deleted descendant was implicitly committed with its directory");
+
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_deleted_directory", workingCopyPath,
+                deletedDirectory, "deleted", "none", "dir");
+            var reviewedDeletion = await Svn.CommitAsync(executable, config, workingCopyPath,
+                new[] { deletedDirectory, deletedChild }, "Reviewed whole-tree deletion").ConfigureAwait(false);
+            Equal("Ready", reviewedDeletion.Status);
+            var deletionCall = ReadInvocations(invocations).Single(call => call.Arguments[0] == "commit");
+            True(deletionCall.Arguments.Contains(Path.Combine(statusRoot, deletedDirectory) + "@", StringComparer.Ordinal),
+                "reviewed deletion omitted its selected directory target");
+            True(deletionCall.Arguments.Contains(Path.Combine(statusRoot, deletedChild) + "@", StringComparer.Ordinal),
+                "reviewed deletion omitted the explicitly selected descendant");
+
+            const string missingDeletedDirectory = "missing deleted directory";
+            var missingDeletedChild = Path.Combine(missingDeletedDirectory, "deleted child.txt");
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_deleted_unknown_directory", workingCopyPath,
+                missingDeletedDirectory, "deleted", "none", "unknown");
+            var omittedMissingDirectoryChild = await Svn.CommitAsync(executable, config, workingCopyPath,
+                new[] { missingDeletedDirectory }, "Reject unreviewed missing directory subtree").ConfigureAwait(false);
+            Equal("NotEligible", omittedMissingDirectoryChild.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "commit"),
+                "unknown-kind deleted directory implicitly committed a reported descendant");
+
+            invocations = PrepareWorkingCopyActionScenario(temp.Path, "wc_action_deleted_unknown_directory", workingCopyPath,
+                missingDeletedDirectory, "deleted", "none", "unknown");
+            var reviewedMissingDirectory = await Svn.CommitAsync(executable, config, workingCopyPath,
+                new[] { missingDeletedDirectory, missingDeletedChild }, "Commit reviewed missing directory subtree").ConfigureAwait(false);
+            Equal("Ready", reviewedMissingDirectory.Status);
+            var missingDirectoryCall = ReadInvocations(invocations).Single(call => call.Arguments[0] == "commit");
+            True(missingDirectoryCall.Arguments.Contains(Path.Combine(statusRoot, missingDeletedDirectory) + "@", StringComparer.Ordinal),
+                "unknown-kind directory deletion omitted its selected parent path");
+            True(missingDirectoryCall.Arguments.Contains(Path.Combine(statusRoot, missingDeletedChild) + "@", StringComparer.Ordinal),
+                "unknown-kind directory deletion omitted its selected child path");
+
+            invocations = PrepareHistoryScenario(temp.Path, "wc_action_noisy", workingCopyPath);
+            var noisy = await Svn.UpdateAsync(executable, config, workingCopyPath).ConfigureAwait(false);
+            Equal("Ready", noisy.Status);
+            True(noisy.Details.Contains("[SVN output truncated after 128 KiB]", StringComparison.Ordinal), "large update output was not marked truncated");
+            True(noisy.Details.Length <= 128 * 1024 + 128, "large update details exceeded the bounded output size");
+            True(File.Exists(invocations + ".completed"), "large mutation output caused SVN termination before completion");
         }).ConfigureAwait(false);
 
         await CheckAsync("local add/remove commands revalidate status and safely frame special paths", async () =>
@@ -2473,6 +2624,41 @@ internal static class Program
                 SequenceEqual(new byte[] { 0, 255, 1, 2 }, binary.Before.Content);
                 SequenceEqual(new byte[] { 0, 255, 1, 2, 0, 9 }, binary.After.Content);
 
+                var operationWorkingCopy = await Svn.GetWorkingCopyAsync(svn, snapshotConfig, workingCopy).ConfigureAwait(false);
+                Equal("Ready", operationWorkingCopy.Status);
+                var authenticatedUpdate = await Svn.UpdateAsync(svn, snapshotConfig, workingCopy, "HEAD",
+                    credentials, expectedUrl: operationWorkingCopy.Url).ConfigureAwait(false);
+                True(authenticatedUpdate.Status == "Ready", $"authenticated update returned {authenticatedUpdate.Status}: {authenticatedUpdate.Details}");
+                var operationPath = Path.Combine(workingCopy, "authenticated-operation.txt");
+                const string operationContents = "authenticated commit uses password stdin\n";
+                await File.WriteAllTextAsync(operationPath, operationContents).ConfigureAwait(false);
+                var operationAdd = await Svn.AddAsync(svn, snapshotConfig, workingCopy, "authenticated-operation.txt").ConfigureAwait(false);
+                True(operationAdd.Status == "Ready", $"authenticated-operation fixture add returned {operationAdd.Status}: {operationAdd.Details}");
+                var authenticatedCommit = await Svn.CommitAsync(svn, snapshotConfig, workingCopy,
+                    new[] { "authenticated-operation.txt" }, "Authenticated local SVN commit",
+                    credentials, expectedUrl: operationWorkingCopy.Url).ConfigureAwait(false);
+                True(authenticatedCommit.Status == "Ready", $"authenticated commit returned {authenticatedCommit.Status}: {authenticatedCommit.Details}");
+                var rejectedOperationPath = Path.Combine(workingCopy, "rejected-operation.txt");
+                await File.WriteAllTextAsync(rejectedOperationPath, "retained after rejected authentication\n").ConfigureAwait(false);
+                var rejectedAdd = await Svn.AddAsync(svn, snapshotConfig, workingCopy, "rejected-operation.txt").ConfigureAwait(false);
+                True(rejectedAdd.Status == "Ready", $"rejected-operation fixture add returned {rejectedAdd.Status}: {rejectedAdd.Details}");
+                var wrongPassword = "wrong-password-operation-unique";
+                var rejectedUpdate = await Svn.UpdateAsync(svn, snapshotConfig, workingCopy, "HEAD",
+                    new Svn.Credentials("alice", wrongPassword, false), expectedUrl: operationWorkingCopy.Url).ConfigureAwait(false);
+                Equal("Failed", rejectedUpdate.Status);
+                True(!rejectedUpdate.Details.Contains(wrongPassword, StringComparison.Ordinal), "wrong update password leaked into diagnostics");
+                var rejectedCommit = await Svn.CommitAsync(svn, snapshotConfig, workingCopy,
+                    new[] { "rejected-operation.txt" }, "Wrong password must not retry",
+                    new Svn.Credentials("alice", wrongPassword, false), expectedUrl: operationWorkingCopy.Url).ConfigureAwait(false);
+                Equal("Failed", rejectedCommit.Status);
+                True(!rejectedCommit.Details.Contains(wrongPassword, StringComparison.Ordinal), "wrong commit password leaked into diagnostics");
+                var operationAuthDirectory = Path.Combine(snapshotConfig, "auth");
+                var operationAuthFiles = Directory.Exists(operationAuthDirectory)
+                    ? Directory.GetFiles(operationAuthDirectory, "*", SearchOption.AllDirectories)
+                    : Array.Empty<string>();
+                Equal(0, operationAuthFiles.Length);
+                SequenceEqual(modifiedContents, await File.ReadAllBytesAsync(targetPath).ConfigureAwait(false));
+
                 SequenceEqual(modifiedContents, await File.ReadAllBytesAsync(targetPath).ConfigureAwait(false));
                 True(!originalContents.SequenceEqual(modifiedContents), "local modification fixture was not different from BASE");
                 var statusAfter = await RunCaptureAsync(svn, "status", "--xml", targetPath + "@").ConfigureAwait(false);
@@ -2567,6 +2753,8 @@ internal static class Program
         Directory.CreateDirectory(Path.Combine(seed, "external missing directory"));
         await File.WriteAllTextAsync(Path.Combine(seed, "modified @ file.txt"), "base contents\n").ConfigureAwait(false);
         await File.WriteAllTextAsync(Path.Combine(seed, "missing @ file.txt"), "missing base contents\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "missing commit @ file.txt"), "missing commit base contents\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "replacement candidate.txt"), "original versioned contents\n").ConfigureAwait(false);
         await File.WriteAllTextAsync(Path.Combine(seed, "nested @ folder", "retained @ data.txt"), "nested base contents\n").ConfigureAwait(false);
         await File.WriteAllTextAsync(Path.Combine(seed, "retained directory", "nested", "data.txt"), "directory contents stay local\n").ConfigureAwait(false);
         await File.WriteAllTextAsync(Path.Combine(seed, "safe missing directory", "nested", "data.txt"), "missing directory bytes stay local\n").ConfigureAwait(false);
@@ -2574,7 +2762,7 @@ internal static class Program
         await File.WriteAllTextAsync(Path.Combine(seed, "external missing directory", "placeholder.txt"), "file external holder\n").ConfigureAwait(false);
         await File.WriteAllTextAsync(Path.Combine(seed, "external-source.txt"), "external file bytes\n").ConfigureAwait(false);
         await File.WriteAllTextAsync(Path.Combine(config, "config"),
-            "[miscellany]\nenable-auto-props = yes\n[auto-props]\n*.txt = svn:eol-style=native\n").ConfigureAwait(false);
+            "[miscellany]\nlog-encoding = ISO-8859-1\nenable-auto-props = yes\n[auto-props]\n*.txt = svn:eol-style=native\n").ConfigureAwait(false);
 
         await RunRequiredAsync(svnadmin, "create", repository).ConfigureAwait(false);
         var repositoryUrl = new Uri(repository).AbsoluteUri;
@@ -2595,9 +2783,50 @@ internal static class Program
         await RunRequiredAsync(svn, "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", config,
             repositoryUrl, workingCopy).ConfigureAwait(false);
 
+        var originalRevision = (await RunCaptureAsync(svn, "info", "--show-item", "revision", "--non-interactive",
+            "--no-auth-cache", "--config-dir", config, "--", workingCopy + "@").ConfigureAwait(false)).StandardOutput.Trim();
+        var remoteUpdatePath = Path.Combine(stagingWorkingCopy, "remote-update.txt");
+        const string remoteUpdateContents = "remote update revision contents\n";
+        await File.WriteAllTextAsync(remoteUpdatePath, remoteUpdateContents).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "add", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", remoteUpdatePath + "@").ConfigureAwait(false);
+        await RunRequiredAsync(svn, "commit", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--message", "Add remote update fixture", "--", remoteUpdatePath + "@").ConfigureAwait(false);
+        var updateHead = await Svn.UpdateAsync(svn, config, workingCopy, "HEAD").ConfigureAwait(false);
+        True(updateHead.Status == "Ready", $"HEAD update returned {updateHead.Status}: {updateHead.Details}");
+        Equal(remoteUpdateContents, await File.ReadAllTextAsync(Path.Combine(workingCopy, "remote-update.txt")).ConfigureAwait(false));
+        var updateOld = await Svn.UpdateAsync(svn, config, workingCopy, originalRevision).ConfigureAwait(false);
+        True(updateOld.Status == "Ready", $"numeric update returned {updateOld.Status}: {updateOld.Details}");
+        True(!File.Exists(Path.Combine(workingCopy, "remote-update.txt")), "updating to the previous revision kept a later-added file");
+        var updateBackToHead = await Svn.UpdateAsync(svn, config, workingCopy, "HEAD").ConfigureAwait(false);
+        True(updateBackToHead.Status == "Ready", $"update back to HEAD returned {updateBackToHead.Status}: {updateBackToHead.Details}");
+        Equal(remoteUpdateContents, await File.ReadAllTextAsync(Path.Combine(workingCopy, "remote-update.txt")).ConfigureAwait(false));
+
+        var missingCommitPath = Path.Combine(workingCopy, "missing commit @ file.txt");
+        File.Delete(missingCommitPath);
+        var scheduleMissingCommit = await Svn.RemoveAsync(svn, config, workingCopy, "missing commit @ file.txt").ConfigureAwait(false);
+        True(scheduleMissingCommit.Status == "Ready", $"missing-file removal returned {scheduleMissingCommit.Status}: {scheduleMissingCommit.Details}");
+        var missingCommitStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        var missingCommitEntry = missingCommitStatus.Entries.Single(entry => entry.Path == "missing commit @ file.txt");
+        Equal("deleted", missingCommitEntry.Item);
+        Equal("unknown", missingCommitEntry.Kind);
+        True(Svn.CanCommit(missingCommitEntry), "a missing scheduled deletion with unknown kind was not committable");
+        var commitMissingFile = await Svn.CommitAsync(svn, config, workingCopy,
+            new[] { "missing commit @ file.txt" }, "Commit missing tracked file deletion").ConfigureAwait(false);
+        True(commitMissingFile.Status == "Ready", $"missing-file commit returned {commitMissingFile.Status}: {commitMissingFile.Details}");
+        var repositoryListing = await RunCaptureAsync(svn, "list", "--non-interactive", "--no-auth-cache",
+            "--config-dir", config, "--", repositoryUrl + "@").ConfigureAwait(false);
+        True(!repositoryListing.StandardOutput.Contains("missing commit @ file.txt", StringComparison.Ordinal),
+            "committing the missing file deletion left it in the repository");
+
         var safeMissingDirectory = Path.Combine(workingCopy, "safe missing directory");
         var safeMissingBackup = Path.Combine(root, "safe missing directory backup");
         var safeMissingBytes = await File.ReadAllBytesAsync(Path.Combine(safeMissingDirectory, "nested", "data.txt")).ConfigureAwait(false);
+        Directory.Move(safeMissingDirectory, safeMissingBackup);
+        var restoreMissingDirectory = await Svn.RevertAsync(svn, config, workingCopy, new[] { "safe missing directory" }).ConfigureAwait(false);
+        True(restoreMissingDirectory.Status == "Ready", $"missing-directory revert returned {restoreMissingDirectory.Status}: {restoreMissingDirectory.Details}");
+        SequenceEqual(safeMissingBytes, await File.ReadAllBytesAsync(Path.Combine(safeMissingDirectory, "nested", "data.txt")).ConfigureAwait(false));
+        Directory.Delete(safeMissingBackup, recursive: true);
         Directory.Move(safeMissingDirectory, safeMissingBackup);
         var removeMissingDirectory = await Svn.RemoveAsync(svn, config, workingCopy, "safe missing directory").ConfigureAwait(false);
         True(removeMissingDirectory.Status == "Ready", $"missing directory removal returned {removeMissingDirectory.Status}: {removeMissingDirectory.Details}");
@@ -2738,6 +2967,93 @@ internal static class Program
         var retainedNestedContents = Path.Combine(workingCopy, "retained directory", "nested", "data.txt");
         Equal("directory contents stay local\nlocal tracked edit\n", await File.ReadAllTextAsync(retainedNestedContents).ConfigureAwait(false));
         True(!Directory.EnumerateDirectories(workingCopy, ".sourcegit-svn-undo-*", SearchOption.AllDirectories).Any(), "successful undo left a recovery directory in the working copy");
+
+        var restoredNested = await Svn.UndoAsync(svn, config, workingCopy,
+            Path.Combine("nested @ folder", "retained @ data.txt")).ConfigureAwait(false);
+        True(restoredNested.Status == "Ready", $"restore nested change returned {restoredNested.Status}: {restoredNested.Details}");
+        var nestedUnversioned = Path.Combine(workingCopy, "nested @ folder", "unversioned-survivor.txt");
+        await File.WriteAllTextAsync(nestedUnversioned, "unversioned child survives recursive revert\n").ConfigureAwait(false);
+        var revertDirectory = await Svn.RevertAsync(svn, config, workingCopy, new[] { "nested @ folder" }).ConfigureAwait(false);
+        True(revertDirectory.Status == "Ready", $"recursive directory revert returned {revertDirectory.Status}: {revertDirectory.Details}");
+        Equal("nested base contents\n", await File.ReadAllTextAsync(nestedPath).ConfigureAwait(false));
+        Equal("unversioned child survives recursive revert\n", await File.ReadAllTextAsync(nestedUnversioned).ConfigureAwait(false));
+
+        var missingForRevert = Path.Combine(workingCopy, "missing @ file.txt");
+        File.Delete(missingForRevert);
+        var revertMissing = await Svn.RevertAsync(svn, config, workingCopy, new[] { "missing @ file.txt" }).ConfigureAwait(false);
+        True(revertMissing.Status == "Ready", $"missing-file revert returned {revertMissing.Status}: {revertMissing.Details}");
+        Equal("missing base contents\n", await File.ReadAllTextAsync(missingForRevert).ConfigureAwait(false));
+
+        var propertyTarget = Path.Combine(workingCopy, "modified @ file.txt");
+        var restoreModifiedForProperties = await Svn.UndoAsync(svn, config, workingCopy, "modified @ file.txt").ConfigureAwait(false);
+        True(restoreModifiedForProperties.Status == "Ready", $"restore property target returned {restoreModifiedForProperties.Status}: {restoreModifiedForProperties.Details}");
+        await RunRequiredAsync(svn, "propset", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "svn:keywords", "Id", "--", propertyTarget + "@").ConfigureAwait(false);
+        await File.AppendAllTextAsync(propertyTarget, "editable bytes\n").ConfigureAwait(false);
+        var revertProperties = await Svn.RevertAsync(svn, config, workingCopy, new[] { "modified @ file.txt" }).ConfigureAwait(false);
+        True(revertProperties.Status == "Ready", $"property/content revert returned {revertProperties.Status}: {revertProperties.Details}");
+        Equal("base contents\n", await File.ReadAllTextAsync(propertyTarget).ConfigureAwait(false));
+        var revertedProperties = await RunCaptureAsync(svn, "proplist", "--xml", "--verbose", "--non-interactive",
+            "--no-auth-cache", "--config-dir", config, "--", propertyTarget + "@").ConfigureAwait(false);
+        True(!revertedProperties.StandardOutput.Contains("svn:keywords", StringComparison.Ordinal), "revert kept a local property edit");
+
+        await RunRequiredAsync(svn, "propset", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "svn:ignore", "root-local-ignore", "--", workingCopy + "@").ConfigureAwait(false);
+        await File.AppendAllTextAsync(propertyTarget, "child edit kept by root-only operations\n").ConfigureAwait(false);
+        var updateBeforeRootCommit = await Svn.UpdateAsync(svn, config, workingCopy, "HEAD").ConfigureAwait(false);
+        True(updateBeforeRootCommit.Status == "Ready", $"pre-commit update returned {updateBeforeRootCommit.Status}: {updateBeforeRootCommit.Details}");
+        True((await File.ReadAllTextAsync(propertyTarget).ConfigureAwait(false)).EndsWith("child edit kept by root-only operations\n", StringComparison.Ordinal),
+            "updating the working-copy root discarded a local child edit");
+        var rootPropertyCommit = await Svn.CommitAsync(svn, config, workingCopy, new[] { "." },
+            "Commit only working-copy root properties").ConfigureAwait(false);
+        True(rootPropertyCommit.Status == "Ready", $"root property commit returned {rootPropertyCommit.Status}: {rootPropertyCommit.Details}");
+        True((await File.ReadAllTextAsync(propertyTarget).ConfigureAwait(false)).EndsWith("child edit kept by root-only operations\n", StringComparison.Ordinal),
+            "root property commit changed an unchecked child edit");
+        await RunRequiredAsync(svn, "propset", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "svn:global-ignores", "root-local-global-ignore", "--", workingCopy + "@").ConfigureAwait(false);
+        var rootPropertyRevert = await Svn.RevertAsync(svn, config, workingCopy, new[] { "." }).ConfigureAwait(false);
+        True(rootPropertyRevert.Status == "Ready", $"root property revert returned {rootPropertyRevert.Status}: {rootPropertyRevert.Details}");
+        True((await File.ReadAllTextAsync(propertyTarget).ConfigureAwait(false)).EndsWith("child edit kept by root-only operations\n", StringComparison.Ordinal),
+            "root property-only revert discarded a child edit");
+
+        var replacementTarget = Path.Combine(workingCopy, "replacement candidate.txt");
+        var revisionBeforeReplacementAttempt = (await RunCaptureAsync(svn, "info", "--show-item", "revision", "--non-interactive",
+            "--no-auth-cache", "--config-dir", config, "--", repositoryUrl + "@").ConfigureAwait(false)).StandardOutput.Trim();
+        await RunRequiredAsync(svn, "delete", "--force", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", replacementTarget + "@").ConfigureAwait(false);
+        await File.WriteAllTextAsync(replacementTarget, "new replacement contents\n").ConfigureAwait(false);
+        await RunRequiredAsync(svn, "add", "--force", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", replacementTarget + "@").ConfigureAwait(false);
+        var replacementStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        Equal("replaced", replacementStatus.Entries.Single(entry => entry.Path == "replacement candidate.txt").Item);
+        var rejectedReplacementCommit = await Svn.CommitAsync(svn, config, workingCopy,
+            new[] { "replacement candidate.txt" }, "Replacement is outside the conservative commit scope").ConfigureAwait(false);
+        Equal("NotEligible", rejectedReplacementCommit.Status);
+        Equal(revisionBeforeReplacementAttempt, (await RunCaptureAsync(svn, "info", "--show-item", "revision", "--non-interactive",
+            "--no-auth-cache", "--config-dir", config, "--", repositoryUrl + "@").ConfigureAwait(false)).StandardOutput.Trim());
+
+        var selectedCommitPath = Path.Combine(workingCopy, "explicit-selected.txt");
+        var unselectedCommitPath = Path.Combine(workingCopy, "explicit-unselected.txt");
+        await File.WriteAllTextAsync(selectedCommitPath, "only this selected addition is committed\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(unselectedCommitPath, "this unchecked addition remains local\n").ConfigureAwait(false);
+        foreach (var path in new[] { selectedCommitPath, unselectedCommitPath })
+        {
+            var add = await Svn.AddAsync(svn, config, workingCopy, Path.GetFileName(path)).ConfigureAwait(false);
+            True(add.Status == "Ready", $"commit fixture add returned {add.Status}: {add.Details}");
+        }
+        const string selectedCommitMessage = "Commit one reviewed addition: café 中文";
+        var selectedCommit = await Svn.CommitAsync(svn, config, workingCopy, new[] { "explicit-selected.txt" },
+            selectedCommitMessage).ConfigureAwait(false);
+        True(selectedCommit.Status == "Ready", $"selected commit returned {selectedCommit.Status}: {selectedCommit.Details}");
+        var committedLog = await RunCaptureAsync(svn, "log", "--xml", "--revision", "HEAD", "--non-interactive",
+            "--no-auth-cache", "--config-dir", config, "--", repositoryUrl + "@").ConfigureAwait(false);
+        var committedMessage = XDocument.Parse(committedLog.StandardOutput).Root?.Element("logentry")?.Element("msg")?.Value;
+        Equal(selectedCommitMessage, committedMessage);
+        Equal("only this selected addition is committed\n", (await RunCaptureAsync(svn, "cat", "--non-interactive",
+            "--no-auth-cache", "--config-dir", config, repositoryUrl + "/explicit-selected.txt").ConfigureAwait(false)).StandardOutput);
+        var unselectedStatus = await Svn.GetStatusAsync(svn, config, workingCopy).ConfigureAwait(false);
+        True(unselectedStatus.Entries.Any(entry => entry.Path == "explicit-unselected.txt" && entry.Item == "added"),
+            "unchecked addition was included in commit");
         s_passed++;
     }
 

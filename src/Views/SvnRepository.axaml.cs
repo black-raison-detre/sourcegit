@@ -1,4 +1,11 @@
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Linq;
+
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 
@@ -9,6 +16,220 @@ namespace SourceGit.Views
         public SvnRepository()
         {
             InitializeComponent();
+            DataContextChanged += (_, _) => ObserveWorkingCopy();
+            AttachedToVisualTree += (_, _) => ObserveWorkingCopy();
+            DetachedFromVisualTree += (_, _) =>
+            {
+                if (_workingCopy != null)
+                    _workingCopy.PropertyChanged -= OnWorkingCopyPropertyChanged;
+                _workingCopy = null;
+            };
+            WorkingCopyEntries.AddHandler(PointerPressedEvent, OnWorkingCopyPointerPressed, RoutingStrategies.Tunnel);
+            HistoryRevisions.AddHandler(PointerPressedEvent, OnHistoryPointerPressed, RoutingStrategies.Tunnel);
+        }
+
+        private ViewModels.SvnWorkingCopy _workingCopy;
+        private bool _syncingSelection;
+
+        private void ObserveWorkingCopy()
+        {
+            if (_workingCopy != null)
+                _workingCopy.PropertyChanged -= OnWorkingCopyPropertyChanged;
+            _workingCopy = (DataContext as ViewModels.SvnRepository)?.WorkingCopy;
+            if (_workingCopy != null)
+            {
+                _workingCopy.PropertyChanged += OnWorkingCopyPropertyChanged;
+                SynchronizeSelection();
+            }
+        }
+
+        private void OnWorkingCopyPropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ViewModels.SvnWorkingCopy.SelectedEntries))
+                SynchronizeSelection();
+        }
+
+        private void SynchronizeSelection()
+        {
+            if (_workingCopy == null || _syncingSelection)
+                return;
+
+            _syncingSelection = true;
+            try
+            {
+                var selected = _workingCopy.SelectedEntries.ToArray();
+                foreach (var item in WorkingCopyEntries.SelectedItems.Cast<ViewModels.SvnWorkingCopyEntry>().ToArray())
+                {
+                    if (!selected.Contains(item))
+                        WorkingCopyEntries.SelectedItems.Remove(item);
+                }
+                foreach (var item in selected)
+                {
+                    if (!WorkingCopyEntries.SelectedItems.Contains(item))
+                        WorkingCopyEntries.SelectedItems.Add(item);
+                }
+            }
+            finally
+            {
+                _syncingSelection = false;
+            }
+        }
+
+        private void OnWorkingCopySelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_syncingSelection || DataContext is not ViewModels.SvnRepository repo)
+                return;
+
+            _syncingSelection = true;
+            try
+            {
+                repo.WorkingCopy.SetSelectedEntries(WorkingCopyEntries.SelectedItems.Cast<ViewModels.SvnWorkingCopyEntry>());
+                if (e.AddedItems.Count > 0 && e.AddedItems[e.AddedItems.Count - 1] is ViewModels.SvnWorkingCopyEntry entry)
+                    repo.WorkingCopy.SelectedEntry = entry;
+            }
+            finally
+            {
+                _syncingSelection = false;
+            }
+        }
+
+        private void OnWorkingCopyPointerPressed(object sender, PointerPressedEventArgs e)
+        {
+            if (DataContext is not ViewModels.SvnRepository repo || repo.WorkingCopy.IsBusy)
+                return;
+
+            var row = (e.Source as Visual)?.FindAncestorOfType<DataGridRow>(true);
+            if (row?.DataContext is not ViewModels.SvnWorkingCopyEntry entry)
+                return;
+
+            if (e.GetCurrentPoint(WorkingCopyEntries).Properties.IsRightButtonPressed)
+            {
+                _syncingSelection = true;
+                try
+                {
+                    if (!WorkingCopyEntries.SelectedItems.Contains(entry))
+                    {
+                        WorkingCopyEntries.SelectedItems.Clear();
+                        WorkingCopyEntries.SelectedItems.Add(entry);
+                    }
+                    repo.WorkingCopy.SetSelectedEntries(WorkingCopyEntries.SelectedItems.Cast<ViewModels.SvnWorkingCopyEntry>());
+                    repo.WorkingCopy.SelectedEntry = entry;
+                }
+                finally
+                {
+                    _syncingSelection = false;
+                }
+                WorkingCopyEntries.Focus();
+            }
+            else if (WorkingCopyEntries.SelectedItems.Contains(entry))
+            {
+                repo.WorkingCopy.SelectedEntry = entry;
+            }
+        }
+
+        private void OnSelectedActions(object sender, RoutedEventArgs e)
+        {
+            OpenSelectedActions(sender as Control);
+            e.Handled = true;
+        }
+
+        private void OnWorkingCopyContextRequested(object sender, ContextRequestedEventArgs e)
+        {
+            OpenSelectedActions(WorkingCopyEntries);
+            e.Handled = true;
+        }
+
+        private void OpenSelectedActions(Control target)
+        {
+            if (DataContext is not ViewModels.SvnRepository repo || !repo.WorkingCopy.CanSelectedActions)
+                return;
+
+            var vm = repo.WorkingCopy;
+            var menu = new ContextMenu();
+            if (vm.SelectedEntries.Count == 1)
+            {
+                var entry = vm.SelectedEntries[0];
+                var path = Path.GetFullPath(Path.Combine(repo.FullPath, entry.Path));
+                var explore = new MenuItem { Header = App.Text("RevealFile"), IsEnabled = Path.Exists(path) };
+                explore.Click += (_, _) => Native.OS.OpenInFileManager(path);
+                menu.Items.Add(explore);
+            }
+            var copy = new MenuItem { Header = App.Text("SVN.WorkingCopy.CopyPaths") };
+            copy.Click += async (_, _) =>
+            {
+                if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+                    await clipboard.SetTextAsync(string.Join(Environment.NewLine, vm.SelectedEntries.Select(entry => entry.Path)));
+            };
+            menu.Items.Add(copy);
+            menu.Items.Add(new MenuItem { Header = "-" });
+            var add = new MenuItem { Header = App.Text("SVN.WorkingCopy.Add"), IsEnabled = vm.CanAdd };
+            add.Click += OnAddWorkingCopy;
+            ExplainDisabledAction(add, "SVN.WorkingCopy.SelectionEligibility");
+            menu.Items.Add(add);
+            var remove = new MenuItem { Header = App.Text("SVN.WorkingCopy.Remove"), IsEnabled = vm.CanRemove };
+            remove.Click += OnRemoveWorkingCopy;
+            ExplainDisabledAction(remove, "SVN.WorkingCopy.SelectionEligibility");
+            menu.Items.Add(remove);
+            var undo = new MenuItem { Header = App.Text("SVN.WorkingCopy.Undo"), IsEnabled = vm.CanUndo };
+            undo.Click += OnUndoWorkingCopy;
+            ExplainDisabledAction(undo, "SVN.WorkingCopy.SelectionEligibility");
+            menu.Items.Add(undo);
+            menu.Items.Add(new MenuItem { Header = "-" });
+            var commit = new MenuItem { Header = App.Text("SVN.Commit"), IsEnabled = vm.CanCommit && repo.CanMutateWorkingCopy };
+            commit.Click += async (_, _) => await SvnOperationDialog.ShowCommitAsync(repo, TopLevel.GetTopLevel(this) as Window);
+            ExplainDisabledAction(commit, "SVN.WorkingCopy.SelectionEligibility");
+            menu.Items.Add(commit);
+            var revert = new MenuItem { Header = App.Text("SVN.WorkingCopy.Revert"), IsEnabled = vm.CanRevert };
+            revert.Click += async (_, _) => await vm.RevertAsync(message => SvnOperationDialog.ShowConfirmationAsync(
+                App.Text("SVN.WorkingCopy.RevertTitle"), App.Text("SVN.WorkingCopy.RevertTitle"), message, TopLevel.GetTopLevel(this) as Window));
+            ExplainDisabledAction(revert, "SVN.WorkingCopy.RevertEligibility");
+            menu.Items.Add(revert);
+            menu.Open(target);
+        }
+
+        private static void ExplainDisabledAction(MenuItem item, string resource)
+        {
+            if (item.IsEnabled)
+                return;
+
+            ToolTip.SetTip(item, new TextBlock
+            {
+                Text = App.Text(resource),
+                MaxWidth = 340,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            });
+            ToolTip.SetShowOnDisabled(item, true);
+        }
+
+        private void OnHistoryPointerPressed(object sender, PointerPressedEventArgs e)
+        {
+            if (!e.GetCurrentPoint(HistoryRevisions).Properties.IsRightButtonPressed)
+                return;
+
+            var row = (e.Source as Visual)?.FindAncestorOfType<DataGridRow>(true);
+            if (row?.DataContext is Native.SvnRevision revision)
+            {
+                HistoryRevisions.SelectedItem = revision;
+                HistoryRevisions.Focus();
+            }
+        }
+
+        private void OnHistoryContextRequested(object sender, ContextRequestedEventArgs e)
+        {
+            if (DataContext is not ViewModels.SvnRepository { SelectedRevision: { } revision } repo)
+                return;
+
+            var item = new MenuItem
+            {
+                Header = App.Text("SVN.Update.ToSelectedRevision", revision.Number),
+                IsEnabled = repo.CanMutateWorkingCopy,
+            };
+            item.Click += async (_, _) => await SvnOperationDialog.ShowUpdateAsync(repo,
+                revision.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), TopLevel.GetTopLevel(this) as Window);
+            var menu = new ContextMenu();
+            menu.Items.Add(item);
+            menu.Open(HistoryRevisions);
+            e.Handled = true;
         }
 
         private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -25,14 +246,6 @@ namespace SourceGit.Views
             e.Handled = true;
         }
 
-        private void OnCancelWorkingCopy(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is ViewModels.SvnRepository repo)
-                repo.WorkingCopy.Cancel();
-
-            e.Handled = true;
-        }
-
         private async void OnAddWorkingCopy(object sender, RoutedEventArgs e)
         {
             if (DataContext is ViewModels.SvnRepository repo)
@@ -44,7 +257,8 @@ namespace SourceGit.Views
         private async void OnRemoveWorkingCopy(object sender, RoutedEventArgs e)
         {
             if (DataContext is ViewModels.SvnRepository repo)
-                await repo.WorkingCopy.RemoveAsync(message => App.AskConfirmAsync(message));
+                await repo.WorkingCopy.RemoveAsync(message => SvnOperationDialog.ShowConfirmationAsync(
+                    App.Text("SVN.WorkingCopy.Remove"), App.Text("SVN.WorkingCopy.Remove"), message, TopLevel.GetTopLevel(this) as Window));
 
             e.Handled = true;
         }

@@ -10,7 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace SourceGit.ViewModels
 {
-    public class SvnRepository : ObservableObject, IDisposable
+    public partial class SvnRepository : ObservableObject, IDisposable
     {
         public string FullPath { get; }
         public SvnWorkingCopy WorkingCopy { get; }
@@ -38,7 +38,7 @@ namespace SourceGit.ViewModels
 
         public bool IsWorkingCopyTabActive => SelectedTabIndex == 1;
         public string ActiveTitle => App.Text(SelectedTabIndex == 1 ? "SVN.WorkingCopy" : "SVN.History");
-        public bool IsLoadingActive => SelectedTabIndex == 1 ? WorkingCopy.IsBusy : IsLoading;
+        public bool IsLoadingActive => WorkingCopy.IsMutating || (SelectedTabIndex == 1 ? WorkingCopy.IsBusy : IsLoading);
         public bool CanRefreshActive => SelectedTabIndex == 1 ? WorkingCopy.CanRefresh : CanRefresh;
 
         public Native.SvnRevision SelectedRevision
@@ -58,7 +58,7 @@ namespace SourceGit.ViewModels
         }
 
         public bool IsLoading => _isLoading;
-        public bool CanRefresh => !_disposed && !IsLoading;
+        public bool CanRefresh => !_disposed && !IsLoading && !WorkingCopy.IsMutating;
         public bool HasMore => _hasMore;
         public bool CanLoadMore => CanRefresh && HasMore && Revisions.Count > 0;
         public bool IsEmpty => !IsLoading && !HasError && Revisions.Count == 0;
@@ -178,6 +178,11 @@ namespace SourceGit.ViewModels
         public Task RefreshActiveAsync() => SelectedTabIndex == 1 ? WorkingCopy.RefreshAsync() : RefreshAsync();
         public void CancelActive()
         {
+            if (WorkingCopy.IsMutating)
+            {
+                WorkingCopy.Cancel();
+                return;
+            }
             if (SelectedTabIndex == 1)
                 WorkingCopy.Cancel();
             else
@@ -291,6 +296,9 @@ namespace SourceGit.ViewModels
             OnPropertyChanged(nameof(ActiveTitle));
             OnPropertyChanged(nameof(IsLoadingActive));
             OnPropertyChanged(nameof(CanRefreshActive));
+            OnPropertyChanged(nameof(CanMutateWorkingCopy));
+            OnPropertyChanged(nameof(CanRefresh));
+            OnPropertyChanged(nameof(CanSignIn));
         }
 
         private void ClearDiffAuthenticationError()

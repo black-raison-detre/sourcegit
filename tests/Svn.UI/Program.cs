@@ -20,6 +20,7 @@ using Avalonia.VisualTree;
 
 using SourceGit;
 using SourceGit.ViewModels;
+using SvnOperationDialog = SourceGit.Views.SvnOperationDialog;
 
 internal static class Program
 {
@@ -651,11 +652,18 @@ internal static class Program
         {
             "modified.txt", "added-source.txt", "deleted.txt", "missing.txt", "property-only.txt",
             "conflicted.txt", "replacement.txt", "copy-source.txt", "move-source.txt", "nested/inside.txt",
+            "update-target.txt", "commit-selected.txt", "commit-unchecked.txt", "commit-stale.txt", "remove-multi-a.txt",
+            "remove-multi-b.txt", "revert-content.txt",
         })
         {
             var path = Path.Combine(workingCopy, name);
             Directory.CreateDirectory(Path.GetDirectoryName(path));
-            File.WriteAllText(path, name == "conflicted.txt" ? "base conflict line\n" : "base line\n");
+            File.WriteAllText(path, name switch
+            {
+                "conflicted.txt" => "base conflict line\n",
+                "update-target.txt" => "update revision one\n",
+                _ => "base line\n",
+            });
         }
         await Run("svn", "add", "--force", "--", workingCopy);
         await Run("svn", "commit", "--config-dir", config, "-m", "working copy baseline", "--", workingCopy);
@@ -664,6 +672,7 @@ internal static class Program
         await Run("svn", "checkout", "--config-dir", config, url, remoteCopy);
         File.WriteAllText(Path.Combine(workingCopy, "conflicted.txt"), "local conflict line\n");
         File.WriteAllText(Path.Combine(remoteCopy, "conflicted.txt"), "remote conflict line\n");
+        File.WriteAllText(Path.Combine(remoteCopy, "update-target.txt"), "update revision two\n");
         await Run("svn", "commit", "--config-dir", config, "-m", "remote conflict edit", "--", remoteCopy);
         await Run("svn", "update", "--config-dir", config, "--", workingCopy);
 
@@ -682,6 +691,9 @@ internal static class Program
         Directory.CreateDirectory(addedDirectory);
         File.WriteAllText(Path.Combine(addedDirectory, "child.txt"), "added child\n");
         await Run("svn", "add", "--force", "--", addedDirectory);
+        File.WriteAllText(Path.Combine(workingCopy, "remove-multi-a.txt"), "remove multi local A\n");
+        File.WriteAllText(Path.Combine(workingCopy, "remove-multi-b.txt"), "remove multi local B\n");
+        File.WriteAllText(Path.Combine(workingCopy, "revert-content.txt"), "revert local contents\n");
         File.WriteAllText(Path.Combine(workingCopy, "unversioned.txt"), "unversioned local line\n");
         File.Delete(Path.Combine(workingCopy, "missing.txt"));
         return workingCopy;
@@ -701,6 +713,8 @@ internal static class Program
         if (repository.WorkingCopy.IsEmpty || repository.WorkingCopy.HasError)
             await repository.WorkingCopy.RefreshAsync();
         await WaitForWorkingCopy(repository.WorkingCopy);
+        Check(!repository.IsEmpty && !repository.HasError && repository.Revisions.Count > 0,
+            "history loads while the working-copy status view initializes");
 
         var repositoryTabs = window.GetVisualDescendants().OfType<TabControl>().Single(control => control.Name == "RepositoryTabs");
         repositoryTabs.SelectedIndex = 1;
@@ -751,7 +765,14 @@ internal static class Program
         Check(entries.DiffContent is TwoSideTextDiff && entries.IsTextDiff,
             "repository diff mode updates an already loaded local diff without reloading it");
         repository.DiffModeSideBySide = false;
-        var localDiffView = window.GetVisualDescendants().OfType<SourceGit.Views.TextDiffView>().Single(control => control.IsVisible);
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick(2);
+        await WaitUntil(() => window.GetVisualDescendants().OfType<SourceGit.Views.TextDiffView>()
+            .Any(control => control.IsEffectivelyVisible));
+        var localDiffView = window.GetVisualDescendants().OfType<SourceGit.Views.TextDiffView>()
+            .Single(control => control.IsEffectivelyVisible);
+        await WaitUntil(() => localDiffView.GetVisualDescendants().OfType<StackPanel>()
+            .Any(panel => panel.Name == "Popup"));
         var localHunkActions = localDiffView.GetVisualDescendants().OfType<StackPanel>().Single(panel => panel.Name == "Popup");
         Check(!localHunkActions.IsVisible, "working-copy diff hides Git stage, unstage, and discard actions");
 
@@ -810,6 +831,8 @@ internal static class Program
         repositoryTabs.SelectedIndex = 0;
         Dispatcher.UIThread.RunJobs();
         Check(repository.SelectedTabIndex == 0, "switching back to history preserves its active tab state");
+        await WaitUntil(() => window.GetVisualDescendants().OfType<DataGrid>()
+            .Any(control => ReferenceEquals(control.ItemsSource, repository.ChangedPaths)));
         var historicalPathsGrid = window.GetVisualDescendants().OfType<DataGrid>()
             .Single(control => ReferenceEquals(control.ItemsSource, repository.ChangedPaths));
         await WaitForPaths(repository);
@@ -849,32 +872,39 @@ internal static class Program
         await WaitForWorkingCopy(entries);
         Check(ReferenceEquals(repository.SelectedRevision, selection), "active working-copy refresh leaves SVN history selection unchanged");
 
-        var addButton = window.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "WorkingCopyAdd");
-        var removeButton = window.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "WorkingCopyRemove");
-        var undoButton = window.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "WorkingCopyUndo");
+        var selectedActions = window.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "WorkingCopySelectedActions");
         entries.SelectedEntry = null;
         Dispatcher.UIThread.RunJobs();
-        Check(!addButton.IsEnabled && !removeButton.IsEnabled && !undoButton.IsEnabled,
-            "scheduling actions require a selected working-copy row");
+        Check(!selectedActions.IsEnabled && entries.SelectedEntries.Count == 0,
+            "selected actions require at least one working-copy row");
         await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "conflicted.txt"));
-        Check(!entries.CanAdd && !entries.CanRemove, "conflicted rows cannot be scheduled through add/remove");
+        Check(!entries.CanAdd && !entries.CanRemove && !entries.CanRevert && !entries.CanCommit,
+            "conflicted rows are excluded from all selected operations");
         await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "copied.txt"));
-        Check(!entries.CanAdd && !entries.CanRemove, "copy ancestry is excluded from basic scheduling actions");
+        Check(!entries.CanAdd && !entries.CanRemove && !entries.CanRevert && !entries.CanCommit,
+            "copy ancestry is excluded from selected actions");
         await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "unversioned.txt"));
         Dispatcher.UIThread.RunJobs();
-        Check(addButton.IsEnabled && !removeButton.IsEnabled, "unversioned selection enables only Add");
+        Check(selectedActions.IsEnabled && entries.CanAdd && !entries.CanRemove && !entries.CanUndo &&
+            !entries.CanRevert && !entries.CanCommit, "unversioned selection enables only Add among selected actions");
         foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
             await SaveSettledScreenshot(window, theme,
-                Path.Combine(screenshotDirectory, "working-copy-add-" + theme + ".png"), "working-copy Add action");
+                Path.Combine(screenshotDirectory, "working-copy-selected-actions-" + theme + ".png"), "working-copy selected actions");
 
-        // Exercise the actual toolbar handler through keyboard activation.
-        addButton.Focus();
+        // Keyboard activation must open the selected-actions menu without changing status.
+        selectedActions.Focus();
         window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        await WaitUntil(() => !entries.IsBusy && entries.SelectedEntry?.Entry.Item == "added");
+        Dispatcher.UIThread.RunJobs();
+        window.KeyPress(Key.Escape, RawInputModifiers.None);
+        window.KeyRelease(Key.Escape, RawInputModifiers.None);
+        Check(!entries.IsBusy && entries.SelectedEntry?.Entry.Item == "unversioned",
+            "keyboard opens and dismisses selected actions without running a command");
+        await entries.AddAsync();
+        await WaitForWorkingCopy(entries);
         Check(!entries.HasActionError && entries.SelectedEntry.Path == "unversioned.txt" &&
             File.ReadAllText(Path.Combine(workingCopy, "unversioned.txt")) == "unversioned local line\n",
-            "keyboard Add schedules the selected file and refreshes status without changing content");
+            "eligible Add schedules the selected file and refreshes status without changing content");
 
         await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "modified.txt"));
         var confirmation = new TaskCompletionSource<bool>();
@@ -884,8 +914,9 @@ internal static class Program
                 "remove confirmation names the selected path and explains local preservation");
             return confirmation.Task;
         });
-        Check(entries.IsBusy && !entries.CanAdd && !entries.CanRemove && !entries.CanUndo && !entries.CanRefresh && !repository.CanRefreshActive,
-            "pending confirmation prevents concurrent actions and refresh");
+        Check(entries.IsBusy && !selectedActions.IsEnabled && !entries.CanAdd && !entries.CanRemove && !entries.CanUndo &&
+            !entries.CanRefresh && !repository.CanRefreshActive,
+            "pending confirmation disables selected actions and refresh");
         await entries.AddAsync();
         confirmation.SetResult(false);
         await pendingRemoval;
@@ -933,25 +964,21 @@ internal static class Program
                 Path.Combine(screenshotDirectory, "working-copy-action-error-" + theme + ".png"), "working-copy action error");
 
         Dispatcher.UIThread.RunJobs();
-        Check(entries.CanUndo && undoButton.IsEnabled, "plain scheduled addition enables Undo");
+        Check(entries.CanUndo && selectedActions.IsEnabled, "plain scheduled addition enables the selected-actions menu");
         foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
             await SaveSettledScreenshot(window, theme,
-                Path.Combine(screenshotDirectory, "working-copy-undo-add-" + theme + ".png"), "Undo addition control");
-        undoButton.Focus();
-        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        await WaitUntil(() => !entries.IsBusy && entries.SelectedEntry?.Entry.Item == "unversioned");
+                Path.Combine(screenshotDirectory, "working-copy-undo-add-" + theme + ".png"), "Undo addition selected-actions state");
+        await entries.UndoAsync();
+        await WaitForWorkingCopy(entries);
         Check(!entries.HasActionError && entries.CanAdd && !entries.CanUndo &&
             File.ReadAllText(stalePath) == "stale selection bytes\n",
-            "keyboard Undo addition keeps local contents and refreshes to unversioned");
+            "Undo addition keeps local contents and refreshes to unversioned");
 
         await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "modified.txt"));
         Dispatcher.UIThread.RunJobs();
-        Check(undoButton.IsEnabled && entries.CanUndo, "scheduled removal enables Undo");
-        undoButton.Focus();
-        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
-        await WaitUntil(() => !entries.IsBusy && entries.SelectedEntry?.Entry.Item == "modified");
+        Check(selectedActions.IsEnabled && entries.CanUndo, "scheduled removal enables Undo in selected actions");
+        await entries.UndoAsync();
+        await WaitForWorkingCopy(entries);
         await WaitForLocalDiff(entries);
         Check(!entries.HasActionError && !entries.CanUndo && entries.CanRemove &&
             File.ReadAllText(modifiedPath) == originalModifiedContent && entries.IsTextDiff &&
@@ -996,6 +1023,452 @@ internal static class Program
         Check(entries.HasActionError && !entries.HasError && entries.SelectedEntry?.Entry.Item == "unversioned" &&
             File.ReadAllText(stalePath) == "stale selection bytes\n",
             "stale Undo is rejected and refreshes status without discarding local contents");
+
+        await entries.AddAsync();
+        await WaitForWorkingCopy(entries);
+        Check(!entries.HasActionError && entries.SelectedEntry?.Entry.Item == "added",
+            "a successful action clears the stale action error");
+        await entries.UndoAsync();
+        await WaitForWorkingCopy(entries);
+        Check(!entries.HasActionError && entries.SelectedEntry?.Entry.Item == "unversioned" &&
+            File.ReadAllText(stalePath) == "stale selection bytes\n",
+            "recovery leaves the row usable and retains its bytes");
+
+        await VerifyCoreWorkingCopyOperations(window, repositoryTabs, repository, grid, entries,
+            workingCopy, Path.Combine(Path.GetDirectoryName(workingCopy), "local-status-repository"),
+            Path.Combine(Path.GetDirectoryName(workingCopy), "local-status-remote-copy"),
+            Preferences.Instance.SvnConfigDirectory, screenshotDirectory, selectedActions);
+    }
+
+    private static async Task VerifyCoreWorkingCopyOperations(Window window, TabControl repositoryTabs,
+        SvnRepository repository, DataGrid grid, SvnWorkingCopy entries, string workingCopy,
+        string repositoryPath, string remoteCopy, string config, string screenshotDirectory, Button selectedActions)
+    {
+        var previouslyAddedPath = Path.Combine(workingCopy, "unversioned.txt");
+        await Run("svn", "revert", "--config-dir", config, "--depth", "empty", "--", previouslyAddedPath + "@");
+        var missingPath = Path.Combine(workingCopy, "missing.txt");
+        File.Delete(missingPath);
+        await entries.RefreshAsync();
+        await WaitForWorkingCopy(entries);
+        window.Height = 760;
+        window.UpdateLayout();
+        using (var layoutFrame = window.CaptureRenderedFrame())
+            Check(layoutFrame != null, "render working-copy rows before pointer input");
+        Dispatcher.UIThread.RunJobs();
+        var removeA = FindWorkingCopyEntry(entries, "remove-multi-a.txt");
+        var removeB = FindWorkingCopyEntry(entries, "remove-multi-b.txt");
+        var modified = FindWorkingCopyEntry(entries, "modified.txt");
+        var unversioned = FindWorkingCopyEntry(entries, "unversioned.txt");
+        Check(unversioned.Entry.Item == "unversioned" && FindWorkingCopyEntry(entries, "missing.txt").Entry.Item == "missing",
+            "core operation fixture starts with an unscheduled unversioned file and a missing versioned file");
+        var mixedBytes = File.ReadAllText(Path.Combine(workingCopy, "modified.txt"));
+
+        ScrollGridToTop(window, grid);
+        var contextRows = grid.GetVisualDescendants().OfType<DataGridRow>()
+            .Where(row => row.DataContext is SvnWorkingCopyEntry).Take(3).ToArray();
+        Check(contextRows.Length == 3, "three working-copy status rows are realized for pointer selection");
+        var contextA = (SvnWorkingCopyEntry)contextRows[0].DataContext;
+        var contextB = (SvnWorkingCopyEntry)contextRows[1].DataContext;
+        var contextC = (SvnWorkingCopyEntry)contextRows[2].DataContext;
+        await SelectWorkingCopyEntries(entries, grid, contextA, contextB);
+        Check(entries.SelectedEntries.Count == 2, "visible status rows create an extended selection");
+
+        var workingCopyContextRequests = 0;
+        grid.AddHandler(Control.ContextRequestedEvent, (_, _) => workingCopyContextRequests++,
+            Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+        await RightClickWorkingCopyRow(window, grid, contextA);
+        Check(workingCopyContextRequests > 0 && entries.SelectedEntries.Count == 2 &&
+            ReferenceEquals(entries.SelectedEntry, contextA),
+            $"right-click on selected row preserves multiselection; ContextRequested={workingCopyContextRequests}; " +
+            $"Selected=[{string.Join(", ", entries.SelectedEntries.Select(entry => entry.Path))}]; Primary={entries.SelectedEntry?.Path}");
+        await RightClickWorkingCopyRow(window, grid, contextC);
+        Check(workingCopyContextRequests > 1 && entries.SelectedEntries.Count == 1 &&
+            ReferenceEquals(entries.SelectedEntries[0], contextC),
+            $"right-click on unselected row selects it; ContextRequested={workingCopyContextRequests}; " +
+            $"Selected=[{string.Join(", ", entries.SelectedEntries.Select(entry => entry.Path))}]; Primary={entries.SelectedEntry?.Path}");
+
+        repositoryTabs.SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick(2);
+        await WaitForPaths(repository);
+        await WaitUntil(() => window.GetVisualDescendants().OfType<DataGrid>()
+            .Any(control => control.Name == "HistoryRevisions"));
+        var historyGrid = window.GetVisualDescendants().OfType<DataGrid>().Single(control => control.Name == "HistoryRevisions");
+        ScrollGridToTop(window, historyGrid);
+        await WaitUntil(() => historyGrid.GetVisualDescendants().OfType<DataGridRow>()
+            .Count(row => row.DataContext is SourceGit.Native.SvnRevision) >= 2);
+        var historyRows = historyGrid.GetVisualDescendants().OfType<DataGridRow>()
+            .Where(row => row.DataContext is SourceGit.Native.SvnRevision).ToArray();
+        Check(historyRows.Length >= 2, "history rows are available for pointer-context checks");
+        var selectedRevision = (SourceGit.Native.SvnRevision)historyRows[0].DataContext;
+        var otherRevision = (SourceGit.Native.SvnRevision)historyRows[1].DataContext;
+        historyGrid.SelectedItem = selectedRevision;
+        Dispatcher.UIThread.RunJobs();
+        var historyContextRequests = 0;
+        historyGrid.AddHandler(Control.ContextRequestedEvent, (_, _) => historyContextRequests++,
+            Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+        await RightClickRow(window, historyGrid, selectedRevision);
+        Check(historyContextRequests > 0 && ReferenceEquals(repository.SelectedRevision, selectedRevision),
+            $"right-click selected history row raises context; ContextRequested={historyContextRequests}; " +
+            $"Selected={repository.SelectedRevision?.Number}; Expected={selectedRevision.Number}");
+        await RightClickRow(window, historyGrid, otherRevision);
+        Check(historyContextRequests > 1 && ReferenceEquals(repository.SelectedRevision, otherRevision),
+            $"right-click unselected history row selects it; ContextRequested={historyContextRequests}; " +
+            $"Selected={repository.SelectedRevision?.Number}; Expected={otherRevision.Number}");
+        repositoryTabs.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+
+        await SelectWorkingCopyEntries(entries, grid, removeA, unversioned);
+        Check(!entries.CanRemove && !entries.CanRevert && !entries.CanCommit && !entries.CanAdd &&
+            !entries.CanUndo && selectedActions.IsEnabled,
+            "a mixed selection disables each mutating action instead of applying to its eligible subset");
+        await entries.RevertAsync(_ => Task.FromResult(true));
+        await WaitForWorkingCopy(entries);
+        Check(File.ReadAllText(Path.Combine(workingCopy, "modified.txt")) == mixedBytes &&
+            File.ReadAllText(Path.Combine(workingCopy, "remove-multi-a.txt")) == "remove multi local A\n",
+            "an ineligible mixed Revert does not change any selected bytes");
+
+        await SelectWorkingCopyEntries(entries, grid, removeA, removeB);
+        var removeAPath = Path.Combine(workingCopy, "remove-multi-a.txt");
+        var removeBPath = Path.Combine(workingCopy, "remove-multi-b.txt");
+        var removeABytes = File.ReadAllText(removeAPath);
+        var removeBBytes = File.ReadAllText(removeBPath);
+        var removeConfirmation = new TaskCompletionSource<bool>();
+        var removeTask = entries.RemoveAsync(message =>
+        {
+            Check(message.Contains("remove-multi-a.txt", StringComparison.Ordinal) &&
+                message.Contains("remove-multi-b.txt", StringComparison.Ordinal),
+                "multi-path Remove confirmation lists every selected target");
+            return removeConfirmation.Task;
+        });
+        Check(entries.IsBusy && !selectedActions.IsEnabled && !entries.CanRefresh,
+            "multi-path confirmation disables the action menu and refresh while pending");
+        removeConfirmation.SetResult(true);
+        await removeTask;
+        await WaitForWorkingCopy(entries);
+        Check(entries.SelectedEntries.Count == 2 && entries.CanUndo &&
+            entries.SelectedEntries.All(entry => entry.Entry.Item == "deleted") &&
+            File.ReadAllText(removeAPath) == removeABytes && File.ReadAllText(removeBPath) == removeBBytes,
+            "multi-path Remove keeps both local files and exposes Undo for the complete selection");
+        await entries.UndoAsync();
+        await WaitForWorkingCopy(entries);
+        Check(entries.SelectedEntries.Count == 2 && entries.SelectedEntries.All(entry => entry.Entry.Item == "modified") &&
+            File.ReadAllText(removeAPath) == removeABytes && File.ReadAllText(removeBPath) == removeBBytes,
+            "multi-path Undo restores scheduling state while retaining both edited files");
+
+        var revertContentPath = Path.Combine(workingCopy, "revert-content.txt");
+        var propertyPath = Path.Combine(workingCopy, "property-only.txt");
+        var localContent = File.ReadAllText(revertContentPath);
+        var unversionedPath = Path.Combine(workingCopy, "unversioned.txt");
+        var unversionedBytes = File.ReadAllText(unversionedPath);
+        await SelectWorkingCopyEntries(entries, grid,
+            FindWorkingCopyEntry(entries, "revert-content.txt"),
+            FindWorkingCopyEntry(entries, "property-only.txt"),
+            FindWorkingCopyEntry(entries, "missing.txt"));
+        Check(entries.CanRevert && !entries.CanAdd && !entries.CanRemove && !entries.CanUndo,
+            "content, property, and missing paths qualify together for Revert");
+
+        var rejectTask = entries.RevertAsync(message =>
+        {
+            Check(message.Contains("revert-content.txt", StringComparison.Ordinal) &&
+                message.Contains("property-only.txt", StringComparison.Ordinal) &&
+                message.Contains("missing.txt", StringComparison.Ordinal),
+                "Revert confirmation names each selected target");
+            return SourceGit.Views.SvnOperationDialog.ShowConfirmationAsync(
+                App.Text("SVN.WorkingCopy.RevertTitle"), App.Text("SVN.WorkingCopy.RevertTitle"), message, window);
+        });
+        var rejectDialog = await WaitForOperationDialog(window);
+        Check(entries.IsBusy && !selectedActions.IsEnabled && FindNamedControl<Button>(rejectDialog, "AcceptButton").IsEnabled,
+            "Revert confirmation is bounded in a modal while selected actions are busy");
+        rejectDialog.Width = 500;
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(rejectDialog, theme,
+                Path.Combine(screenshotDirectory, "working-copy-revert-confirm-" + theme + ".png"),
+                "bounded multi-path Revert confirmation");
+        FindNamedControl<Button>(rejectDialog, "CancelButton")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await rejectTask;
+        Check(!entries.IsBusy && !entries.HasActionError && entries.CanRevert &&
+            File.ReadAllText(revertContentPath) == localContent && !File.Exists(missingPath) &&
+            File.ReadAllText(unversionedPath) == unversionedBytes,
+            "declining multi-path Revert preserves edited, missing, and unversioned paths");
+
+        var acceptTask = entries.RevertAsync(message => SourceGit.Views.SvnOperationDialog.ShowConfirmationAsync(
+            App.Text("SVN.WorkingCopy.RevertTitle"), App.Text("SVN.WorkingCopy.RevertTitle"), message, window));
+        var acceptDialog = await WaitForOperationDialog(window);
+        FindNamedControl<Button>(acceptDialog, "AcceptButton")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await acceptTask;
+        await WaitForWorkingCopy(entries);
+        Check(!entries.HasActionError && File.ReadAllText(revertContentPath) == "base line\n" &&
+            File.Exists(missingPath) && File.ReadAllText(missingPath) == "base line\n" &&
+            File.ReadAllText(unversionedPath) == unversionedBytes,
+            "accepted multi-path Revert restores BASE content and missing files while preserving unversioned files");
+        var properties = await RunCapture("svn", "proplist", "--verbose", "--xml", "--config-dir", config, "--", propertyPath + "@");
+        Check(!properties.Contains("fixture:label", StringComparison.Ordinal),
+            "accepted Revert removes the local-only property change");
+
+        // Earlier UI checks intentionally created a conflict, copy/move ancestry, and scheduled
+        // changes. Reset only this disposable working copy before root Update and Commit so those
+        // workflows start from a deterministic clean base; the unversioned test files remain local.
+        await Run("svn", "revert", "--config-dir", config, "--depth", "infinity", "--", workingCopy + "@");
+        await entries.RefreshAsync();
+        await WaitForWorkingCopy(entries);
+        Check(!entries.Entries.Any(entry => entry.HasWarning ||
+                entry.Entry.Item is "added" or "deleted" or "modified" or "missing" or "replaced" or "conflicted" ||
+                entry.Entry.Properties == "modified" || entry.Entry.IsCopied ||
+                !string.IsNullOrEmpty(entry.Entry.MovedFrom) || !string.IsNullOrEmpty(entry.Entry.MovedTo)) &&
+            File.ReadAllText(unversionedPath) == unversionedBytes,
+            "Update and Commit fixture is clean while keeping unversioned files");
+
+        var updateTargetPath = Path.Combine(workingCopy, "update-target.txt");
+        await SelectWorkingCopyEntry(entries, grid, FindWorkingCopyEntry(entries, "unversioned.txt"));
+        var updateTask = SourceGit.Views.SvnOperationDialog.ShowUpdateAsync(repository, "1", window);
+        var updateDialog = await WaitForOperationDialog(window);
+        var specificRevision = updateDialog.GetVisualDescendants().OfType<RadioButton>().Single(control => control.Name == "SpecificRevision");
+        var revisionInput = updateDialog.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "RevisionInput");
+        var updateAccept = updateDialog.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "AcceptButton");
+        Check(specificRevision.IsChecked == true && revisionInput.Text == "1" && updateAccept.IsEnabled,
+            "specific-revision Update dialog opens with the requested revision");
+        revisionInput.Text = "invalid";
+        Dispatcher.UIThread.RunJobs();
+        await WaitUntil(() => !updateAccept.IsEnabled);
+        Check(!updateAccept.IsEnabled, "Update dialog rejects an invalid revision before execution");
+        revisionInput.Text = "1";
+        Dispatcher.UIThread.RunJobs();
+        await WaitUntil(() => updateAccept.IsEnabled);
+        updateDialog.Width = 500;
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(updateDialog, theme,
+                Path.Combine(screenshotDirectory, "working-copy-update-dialog-" + theme + ".png"),
+                "specific-revision Update dialog");
+        updateAccept.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await updateTask;
+        await WaitForWorkingCopy(entries);
+        Check(File.ReadAllText(updateTargetPath) == "update revision one\n" && !entries.HasActionError && !repository.HasError,
+            "Update to a specific revision changes the local file and refreshes status and history");
+        await repository.UpdateWorkingCopyAsync("HEAD");
+        await WaitForWorkingCopy(entries);
+        Check(File.ReadAllText(updateTargetPath) == "update revision two\n" && !entries.HasActionError,
+            "updating back to HEAD restores the newer base without leaving a stale action error");
+
+        var selectedCommitPath = Path.Combine(workingCopy, "commit-selected.txt");
+        var uncheckedCommitPath = Path.Combine(workingCopy, "commit-unchecked.txt");
+        var staleCommitPath = Path.Combine(workingCopy, "commit-stale.txt");
+        File.WriteAllText(selectedCommitPath, "selected local commit\n");
+        File.WriteAllText(uncheckedCommitPath, "unchecked local edit\n");
+        File.WriteAllText(staleCommitPath, "out-of-band candidate\n");
+        await entries.RefreshAsync();
+        await WaitForWorkingCopy(entries);
+        var selectedCommitEntry = FindWorkingCopyEntry(entries, "commit-selected.txt");
+        var uncheckedCommitEntry = FindWorkingCopyEntry(entries, "commit-unchecked.txt");
+        var staleCommitEntry = FindWorkingCopyEntry(entries, "commit-stale.txt");
+        Check(entries.GetCommitCandidates().Contains(selectedCommitEntry) && entries.GetCommitCandidates().Contains(uncheckedCommitEntry) &&
+            entries.GetCommitCandidates().Contains(staleCommitEntry),
+            "Commit dialog candidates include each independently changed path");
+        await SelectWorkingCopyEntry(entries, grid, selectedCommitEntry);
+
+        var cancelledCommitTask = SourceGit.Views.SvnOperationDialog.ShowCommitAsync(repository, window);
+        var cancelledCommitDialog = await WaitForOperationDialog(window);
+        var cancelledMessage = cancelledCommitDialog.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "CommitMessage");
+        var cancelledAccept = FindNamedControl<Button>(cancelledCommitDialog, "AcceptButton");
+        Check(!cancelledAccept.IsEnabled, "Commit starts disabled until its message is entered");
+        cancelledMessage.Text = "cancelled commit draft";
+        Dispatcher.UIThread.RunJobs();
+        await WaitUntil(() => cancelledAccept.IsEnabled);
+        FindNamedControl<Button>(cancelledCommitDialog, "CancelButton")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await cancelledCommitTask;
+        Check(repository.CommitMessageDraft == "cancelled commit draft",
+            "cancelling Commit retains the typed message as a retry draft");
+
+        var staleCommitTask = SourceGit.Views.SvnOperationDialog.ShowCommitAsync(repository, window);
+        var staleCommitDialog = await WaitForOperationDialog(window);
+        var staleChecks = staleCommitDialog.GetVisualDescendants().OfType<CheckBox>().ToArray();
+        var staleSelectedCheck = staleChecks.Single(check =>
+            Avalonia.Automation.AutomationProperties.GetName(check).StartsWith("commit-selected.txt,", StringComparison.Ordinal));
+        var staleCandidateCheck = staleChecks.Single(check =>
+            Avalonia.Automation.AutomationProperties.GetName(check).StartsWith("commit-stale.txt,", StringComparison.Ordinal));
+        var staleUncheckedCheck = staleChecks.Single(check =>
+            Avalonia.Automation.AutomationProperties.GetName(check).StartsWith("commit-unchecked.txt,", StringComparison.Ordinal));
+        var staleMessage = staleCommitDialog.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "CommitMessage");
+        var staleAccept = FindNamedControl<Button>(staleCommitDialog, "AcceptButton");
+        Dispatcher.UIThread.RunJobs();
+        await WaitUntil(() => staleAccept.IsEnabled);
+        Check(staleMessage.Text == "cancelled commit draft" && staleSelectedCheck.IsChecked == true,
+            "reopening Commit restores the draft and selected path");
+        staleCandidateCheck.IsChecked = true;
+        staleUncheckedCheck.IsChecked = false;
+        staleMessage.Text = "stale candidate retry";
+        Dispatcher.UIThread.RunJobs();
+        await WaitUntil(() => staleAccept.IsEnabled);
+        await Run("svn", "commit", "--config-dir", config, "-m", "out-of-band commit", "--", staleCommitPath);
+        Dispatcher.UIThread.RunJobs();
+        staleAccept.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await staleCommitTask;
+        await WaitForWorkingCopy(entries);
+        Check(entries.HasActionError && repository.CommitMessageDraft == "stale candidate retry" &&
+            File.ReadAllText(selectedCommitPath) == "selected local commit\n",
+            "a stale selected Commit candidate fails safely and preserves the message for retry");
+
+        var commitTask = SourceGit.Views.SvnOperationDialog.ShowCommitAsync(repository, window);
+        var commitDialog = await WaitForOperationDialog(window);
+        var commitChecks = commitDialog.GetVisualDescendants().OfType<CheckBox>().ToArray();
+        var selectedCheck = commitChecks.Single(check =>
+            Avalonia.Automation.AutomationProperties.GetName(check).StartsWith("commit-selected.txt,", StringComparison.Ordinal));
+        var uncheckedCheck = commitChecks.Single(check =>
+            Avalonia.Automation.AutomationProperties.GetName(check).StartsWith("commit-unchecked.txt,", StringComparison.Ordinal));
+        var commitMessage = commitDialog.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "CommitMessage");
+        var commitAccept = commitDialog.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "AcceptButton");
+        Dispatcher.UIThread.RunJobs();
+        await WaitUntil(() => commitAccept.IsEnabled);
+        Check(selectedCheck.IsChecked == true && uncheckedCheck.IsChecked != true &&
+            commitMessage.Text == "stale candidate retry" && commitAccept.IsEnabled,
+            "Commit retry preselects eligible paths, restores the draft, and permits a valid message");
+        selectedCheck.IsChecked = false;
+        selectedCheck.IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+        await WaitUntil(() => commitAccept.IsEnabled);
+        Check(commitAccept.IsEnabled, "Commit dialog enables submission for a selected path and message");
+        commitDialog.Width = 500;
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(commitDialog, theme,
+                Path.Combine(screenshotDirectory, "working-copy-commit-dialog-" + theme + ".png"),
+                "selective Commit dialog");
+        commitAccept.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await commitTask;
+        await WaitForWorkingCopy(entries);
+        var localRepositoryUrl = new Uri(repositoryPath + Path.DirectorySeparatorChar).AbsoluteUri.TrimEnd('/');
+        var committedContent = await RunCapture("svn", "cat", "--config-dir", config,
+            "--revision", "HEAD", localRepositoryUrl + "/commit-selected.txt");
+        await Run("svn", "update", "--config-dir", config, "--revision", "HEAD", "--", remoteCopy);
+        Check(committedContent == "selected local commit\n" &&
+            File.ReadAllText(Path.Combine(remoteCopy, "commit-selected.txt")) == "selected local commit\n" &&
+            File.ReadAllText(Path.Combine(remoteCopy, "commit-unchecked.txt")) == "base line\n" &&
+            File.ReadAllText(Path.Combine(remoteCopy, "commit-stale.txt")) == "out-of-band candidate\n" &&
+            File.ReadAllText(uncheckedCommitPath) == "unchecked local edit\n" && !entries.HasActionError && !repository.HasError,
+            "selected Commit reaches the repository while preserving the unchecked local edit");
+        var latestRevision = repository.Revisions.Max(revision => revision.Number);
+        var latestCommit = repository.Revisions.Single(revision => revision.Number == latestRevision);
+        Check(latestRevision >= 4 && latestCommit.Message == "stale candidate retry" &&
+            string.IsNullOrEmpty(repository.CommitMessageDraft),
+            $"successful Commit refreshes history and clears the retry draft; Latest={latestRevision}; " +
+            $"Message={latestCommit.Message}; Draft={repository.CommitMessageDraft}; Selected={repository.SelectedRevision?.Number}");
+
+        window.Width = 800;
+        window.Height = 540;
+        Dispatcher.UIThread.RunJobs();
+        foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            await SaveSettledScreenshot(window, theme,
+                Path.Combine(screenshotDirectory, "working-copy-narrow-" + theme + ".png"),
+                "working-copy screen at a narrow window size");
+        window.Width = 1024;
+        window.Height = 600;
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static async Task<SvnOperationDialog> WaitForOperationDialog(Window owner)
+    {
+        await WaitUntil(() => owner.OwnedWindows.OfType<SvnOperationDialog>().Any());
+        return owner.OwnedWindows.OfType<SvnOperationDialog>().Single();
+    }
+
+    private static T FindNamedControl<T>(Control root, string name) where T : Control =>
+        root.GetVisualDescendants().OfType<T>().Single(control => control.Name == name);
+
+    private static void ScrollGridToTop(Window window, DataGrid grid)
+    {
+        window.UpdateLayout();
+        grid.UpdateLayout();
+        var vertical = grid.GetVisualDescendants().OfType<ScrollBar>()
+            .FirstOrDefault(scrollBar => scrollBar.Orientation == Avalonia.Layout.Orientation.Vertical);
+        if (vertical != null)
+            vertical.Value = vertical.Minimum;
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        grid.UpdateLayout();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick(2);
+    }
+
+    private static async Task SelectWorkingCopyEntries(SvnWorkingCopy workingCopy, DataGrid grid,
+        params SvnWorkingCopyEntry[] entries)
+    {
+        grid.SelectedItems.Clear();
+        foreach (var entry in entries)
+            grid.SelectedItems.Add(entry);
+        Dispatcher.UIThread.RunJobs();
+        Check(grid.SelectedItems.Count == entries.Length && workingCopy.SelectedEntries.Count == entries.Length,
+            "extended working-copy selection binding: " + string.Join(", ", entries.Select(entry => entry.Path)));
+        if (entries.Length > 0)
+            Check(entries.Any(entry => ReferenceEquals(workingCopy.SelectedEntry, entry)),
+                "primary row remains inside the extended selection");
+        await WaitForLocalDiff(workingCopy);
+    }
+
+    private static Task RightClickWorkingCopyRow(Window window, DataGrid grid, SvnWorkingCopyEntry entry) =>
+        RightClickRow(window, grid, entry);
+
+    private static async Task RightClickRow(Window window, DataGrid grid, object item)
+    {
+        Check(grid.IsEffectivelyVisible && grid.IsEffectivelyEnabled,
+            $"context grid is active before pointer input; Name={grid.Name}; Bounds={grid.Bounds}; " +
+            $"Visible={grid.IsVisible}/{grid.IsEffectivelyVisible}; Enabled={grid.IsEnabled}/{grid.IsEffectivelyEnabled}");
+        window.UpdateLayout();
+        grid.UpdateLayout();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick(2);
+        window.UpdateLayout();
+        grid.UpdateLayout();
+        await WaitUntil(() => grid.GetVisualDescendants().OfType<DataGridRow>()
+            .Any(candidate => ReferenceEquals(candidate.DataContext, item) && candidate.Bounds.Width > 0 && candidate.Bounds.Height > 0));
+        window.UpdateLayout();
+        grid.UpdateLayout();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick(2);
+        var row = grid.GetVisualDescendants().OfType<DataGridRow>().Single(candidate => ReferenceEquals(candidate.DataContext, item));
+        Point? point = null;
+        Point? lastPoint = null;
+        Visual lastHit = null;
+        DataGridRow lastHitRow = null;
+        for (var y = 3.0; y < row.Bounds.Height - 3 && point == null; y += 4)
+        {
+            for (var x = 6.0; x < row.Bounds.Width - 6; x += 8)
+            {
+                var candidate = row.TranslatePoint(new Point(x, y), window);
+                if (candidate == null)
+                    continue;
+                var candidateHit = window.InputHitTest(candidate.Value) as Visual;
+                var candidateRow = candidateHit?.FindAncestorOfType<DataGridRow>(true);
+                lastPoint = candidate;
+                lastHit = candidateHit;
+                lastHitRow = candidateRow;
+                if (ReferenceEquals(candidateRow?.DataContext, item))
+                {
+                    point = candidate;
+                    break;
+                }
+            }
+        }
+        if (!point.HasValue)
+        {
+            var artifactDirectory = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_ARTIFACTS") ??
+                Path.Combine(Path.GetTempPath(), "sourcegit-svn-ui-artifacts");
+            Directory.CreateDirectory(artifactDirectory);
+            using var missFrame = window.CaptureRenderedFrame();
+            missFrame?.Save(Path.Combine(artifactDirectory, "rightclick-hit-miss-" + grid.Name + ".png"));
+        }
+        Check(point.HasValue,
+            $"visible pointer target resolves to the intended row; RowOrigin={row.TranslatePoint(new Point(0, 0), window)}; " +
+            $"RowBounds={row.Bounds}; GridBounds={grid.Bounds}; GridEnabled={grid.IsEnabled}/{grid.IsEffectivelyEnabled}; " +
+            $"GridVisible={grid.IsVisible}/{grid.IsEffectivelyVisible}; " +
+            $"Window={window.IsVisible}/{window.IsEnabled}/{window.ClientSize}; LastPoint={lastPoint}; " +
+            $"LastHit={lastHit?.GetType().Name}; LastHitRow={lastHitRow?.DataContext}; Expected={item}; " +
+            $"ScrollOffsets=[{string.Join(", ", grid.GetVisualDescendants().OfType<ScrollViewer>().Select(view => view.Offset.ToString()))}]");
+        window.MouseMove(point.Value, RawInputModifiers.None);
+        window.MouseDown(point.Value, MouseButton.Right, RawInputModifiers.None);
+        window.MouseUp(point.Value, MouseButton.Right, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        window.KeyPress(Key.Escape, RawInputModifiers.None);
+        window.KeyRelease(Key.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
     }
 
     private static SvnWorkingCopyEntry FindWorkingCopyEntry(SvnWorkingCopy workingCopy, string fileName) =>
@@ -1517,6 +1990,36 @@ internal static class Program
             await Task.WhenAll(output, error);
             if (process.ExitCode != 0)
                 throw new InvalidOperationException(executable + ": " + error.Result);
+        }
+        finally
+        {
+            if (!process.HasExited)
+                process.Kill(true);
+        }
+    }
+
+    private static async Task<string> RunCapture(string executable, params string[] arguments)
+    {
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo(executable)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var argument in arguments)
+            process.StartInfo.ArgumentList.Add(argument);
+        process.Start();
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+            await Task.WhenAll(output, error);
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException(executable + ": " + error.Result);
+            return output.Result;
         }
         finally
         {

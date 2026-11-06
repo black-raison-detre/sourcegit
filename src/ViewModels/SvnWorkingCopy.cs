@@ -62,7 +62,7 @@ namespace SourceGit.ViewModels
 
     // Local inspection has its own lifetime and errors so remote history/authentication
     // cannot block access to the working copy.
-    public class SvnWorkingCopy : ObservableObject, IDisposable
+    public partial class SvnWorkingCopy : ObservableObject, IDisposable
     {
         public string FullPath { get; }
         public AvaloniaList<SvnWorkingCopyEntry> Entries { get; } = new();
@@ -76,6 +76,8 @@ namespace SourceGit.ViewModels
                     return;
                 if (SetProperty(ref _selectedEntry, value))
                 {
+                    if (!_selectedEntries.Contains(value))
+                        _selectedEntries = value == null ? [] : [value];
                     InvalidateDiff();
                     _ = RetryDiffAsync();
                 }
@@ -83,12 +85,13 @@ namespace SourceGit.ViewModels
         }
 
         public bool IsLoading => _isLoading;
+        public bool IsMutating => _isMutating;
         public bool IsBusy => IsLoading || _isMutating;
         public bool CanRefresh => !_disposed && !IsBusy;
-        public bool CanAdd => CanRefresh && _status == "Ready" && Entries.Contains(SelectedEntry) && Native.Svn.CanAdd(SelectedEntry?.Entry);
-        public bool CanRemove => CanRefresh && _status == "Ready" && Entries.Contains(SelectedEntry) && Native.Svn.CanRemove(SelectedEntry?.Entry);
-        public bool CanUndo => CanRefresh && _status == "Ready" && Entries.Contains(SelectedEntry) && Native.Svn.CanUndo(SelectedEntry?.Entry);
-        public string BusyMessage => App.Text(_isMutating ? "SVN.WorkingCopy.Applying" : "SVN.WorkingCopy.Loading");
+        public bool CanAdd => CanApplySelection(Native.Svn.CanAdd);
+        public bool CanRemove => CanApplySelection(Native.Svn.CanRemove);
+        public bool CanUndo => CanApplySelection(Native.Svn.CanUndo);
+        public string BusyMessage => App.Text(_isMutating ? _operationBusyKey : "SVN.WorkingCopy.Loading");
         public bool HasActionError => !string.IsNullOrEmpty(_actionErrorMessage);
         public string ActionErrorMessage => _actionErrorMessage;
         public string ActionErrorDetails => _actionErrorDetails;
@@ -152,6 +155,9 @@ namespace SourceGit.ViewModels
                 return;
 
             var selectedPath = SelectedEntry?.Path;
+            var selectedPaths = _selectedEntries.Select(entry => entry.Path).ToHashSet(StringComparer.Ordinal);
+            _selectedEntries = [];
+            _operationStatusEntries = [];
             SetProperty(ref _selectedEntry, null, nameof(SelectedEntry));
             InvalidateDiff();
             using var cancellation = new CancellationTokenSource();
@@ -174,8 +180,10 @@ namespace SourceGit.ViewModels
                 _errorDetails = result.Details;
                 if (result.Status == "Ready")
                 {
+                    _operationStatusEntries = result.Entries;
                     Entries.Clear();
                     Entries.AddRange(result.Entries.Select(entry => new SvnWorkingCopyEntry(entry)));
+                    _selectedEntries = Entries.Where(entry => selectedPaths.Contains(entry.Path)).ToArray();
                     SetProperty(ref _selectedEntry, Entries.FirstOrDefault(entry => entry.Path == selectedPath), nameof(SelectedEntry));
                 }
             }
@@ -220,7 +228,8 @@ namespace SourceGit.ViewModels
             }))
                 return;
 
-            var selected = SelectedEntry;
+            var selection = SelectedEntries.ToArray();
+            var paths = string.Join(Environment.NewLine, selection.Select(entry => entry.Path));
             var failureKey = action switch
             {
                 WorkingCopyAction.Add => "SVN.WorkingCopy.AddFailed",
@@ -228,9 +237,11 @@ namespace SourceGit.ViewModels
                 _ => "SVN.WorkingCopy.UndoFailed",
             };
             _isMutating = true;
+            _operationBusyKey = "SVN.WorkingCopy.Applying";
             _actionErrorMessage = string.Empty;
             _actionErrorDetails = string.Empty;
             _actionNotice = string.Empty;
+            _operationOutput = string.Empty;
             InvalidateDiff();
             NotifyState();
             using var cancellation = new CancellationTokenSource();
@@ -239,7 +250,7 @@ namespace SourceGit.ViewModels
             try
             {
                 if (action == WorkingCopyAction.Remove &&
-                    (confirm == null || !await confirm(App.Text("SVN.WorkingCopy.RemoveConfirm", selected.Path))))
+                    (confirm == null || !await confirm(App.Text("SVN.WorkingCopy.RemoveConfirm", paths))))
                     return;
                 if (_disposed)
                     return;
@@ -248,33 +259,48 @@ namespace SourceGit.ViewModels
                 attempted = true;
                 var executable = Native.Svn.ResolveExecutable(Preferences.Instance.SvnInstallPath);
                 var config = Preferences.Instance.SvnConfigDirectory;
-                var result = await Task.Run(() => action switch
+                // Parents must be added first. Remove/Undo of a directory already includes
+                // its descendants, so do not retry them against now-stale scheduling.
+                var targets = selection.OrderBy(entry => entry.Path.Count(character => character == System.IO.Path.DirectorySeparatorChar))
+                    .ThenBy(entry => entry.Path, StringComparer.Ordinal).ToList();
+                if (action != WorkingCopyAction.Add)
+                    targets = targets.Where(entry => !selection.Any(parent => parent != entry && parent.Entry.Kind == "dir" &&
+                        entry.Path.StartsWith(parent.Path + System.IO.Path.DirectorySeparatorChar,
+                            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))).ToList();
+                var completed = 0;
+                foreach (var selected in targets)
                 {
-                    WorkingCopyAction.Add => Native.Svn.AddAsync(executable, config, FullPath, selected.Path, cancellation.Token),
-                    WorkingCopyAction.Remove => Native.Svn.RemoveAsync(executable, config, FullPath, selected.Path, cancellation.Token),
-                    _ => Native.Svn.UndoAsync(executable, config, FullPath, selected.Path, cancellation.Token),
-                }, cancellation.Token);
-                if (result.Status == "Ready")
-                    _actionNotice = App.Text(action switch
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    var result = await Task.Run(() => action switch
                     {
-                        WorkingCopyAction.Add => "SVN.WorkingCopy.Added",
-                        WorkingCopyAction.Remove => "SVN.WorkingCopy.Removed",
-                        _ => "SVN.WorkingCopy.Undone",
-                    }, selected.Path);
-                else
-                {
-                    _actionErrorMessage = App.Text(failureKey, selected.Path);
-                    _actionErrorDetails = result.Details;
+                        WorkingCopyAction.Add => Native.Svn.AddAsync(executable, config, FullPath, selected.Path, cancellation.Token),
+                        WorkingCopyAction.Remove => Native.Svn.RemoveAsync(executable, config, FullPath, selected.Path, cancellation.Token),
+                        _ => Native.Svn.UndoAsync(executable, config, FullPath, selected.Path, cancellation.Token),
+                    }, cancellation.Token);
+                    if (result.Status != "Ready")
+                    {
+                        _actionErrorMessage = App.Text(failureKey, selected.Path);
+                        _actionErrorDetails = result.Details + Environment.NewLine +
+                            App.Text("SVN.Operation.Partial", completed, targets.Count);
+                        return;
+                    }
+                    completed++;
                 }
+                _actionNotice = App.Text(action switch
+                {
+                    WorkingCopyAction.Add => "SVN.WorkingCopy.Added",
+                    WorkingCopyAction.Remove => "SVN.WorkingCopy.Removed",
+                    _ => "SVN.WorkingCopy.Undone",
+                }, paths);
             }
             catch (OperationCanceledException ex)
             {
                 _actionErrorMessage = App.Text("SVN.WorkingCopy.ActionCancelled");
-                _actionErrorDetails = ex.Message;
+                _actionErrorDetails = ex.Message + Environment.NewLine + App.Text("SVN.Operation.PartialUnknown");
             }
             catch (Exception ex)
             {
-                _actionErrorMessage = App.Text(failureKey, selected.Path);
+                _actionErrorMessage = App.Text(failureKey, paths);
                 _actionErrorDetails = ex.Message;
             }
             finally
@@ -491,12 +517,14 @@ namespace SourceGit.ViewModels
         {
             OnPropertyChanged(nameof(IsLoading));
             OnPropertyChanged(nameof(IsBusy));
+            OnPropertyChanged(nameof(IsMutating));
             OnPropertyChanged(nameof(BusyMessage));
             OnPropertyChanged(nameof(CanRefresh));
             OnPropertyChanged(nameof(HasActionError));
             OnPropertyChanged(nameof(ActionErrorMessage));
             OnPropertyChanged(nameof(ActionErrorDetails));
             OnPropertyChanged(nameof(ActionNotice));
+            OnPropertyChanged(nameof(OperationOutput));
             OnPropertyChanged(nameof(HasError));
             OnPropertyChanged(nameof(ErrorMessage));
             OnPropertyChanged(nameof(ErrorDetails));
@@ -510,6 +538,11 @@ namespace SourceGit.ViewModels
             OnPropertyChanged(nameof(CanAdd));
             OnPropertyChanged(nameof(CanRemove));
             OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(SelectedEntries));
+            OnPropertyChanged(nameof(SelectionSummary));
+            OnPropertyChanged(nameof(CanSelectedActions));
+            OnPropertyChanged(nameof(CanRevert));
+            OnPropertyChanged(nameof(CanCommit));
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(SelectionNotice));
             OnPropertyChanged(nameof(IsLoadingDiff));

@@ -31,14 +31,19 @@ checks verify BASE-to-local text diffs, property output, conflict notices,
 missing and directory states, and copy/move/replacement behavior. They confirm
 status rows and diffs cannot be edited directly, preserve selection across refresh
 and tab switches, and leave history selection intact when the working-copy tab
-refreshes. Add/remove checks exercise keyboard activation of Add, action
-eligibility, removal confirmation and cancellation, concurrent-action prevention,
-keep-local removal of modified and missing files, non-recursive directory addition,
-and stale-selection errors with a refreshed, usable status list.
-Undo checks activate the actual toolbar control by keyboard, retain bytes when
-cancelling additions and removals, restore absent deleted files, undo added
-directories with scheduled children, reject stale selections, and exclude
-ordinary edits, conflicts, copies, and replacements from scheduling Undo.
+refreshes. Extended-selection checks exercise right-click on selected and
+unselected status/history rows, menu eligibility, all-or-nothing mixed selections,
+busy-state disabling, and multi-path Remove/Undo while preserving local bytes.
+Revert covers declined and accepted bounded confirmation, content and property
+restoration, restoration of missing files, and preservation of unversioned files.
+Update checks a specific revision and then HEAD; Commit submits one selected path
+and confirms an unchecked edit remains local. Commit cancellation and stale
+candidate failure retain the typed message for retry; success clears the draft.
+Successful recovery must clear an earlier action error. Scheduling checks cover
+keep-local removal of modified and missing files, non-recursive directory
+addition, stale-selection errors with a refreshed status list, Undo of
+additions/deletions/directories, and exclusion of
+conflicts, copies, replacements, and ordinary edits from scheduling Undo.
 A fake SVN client delays local diffs to check cancellation, retry, stale-result
 suppression, and local status access while remote history requests credentials.
 The harness also checks the snapshot parser against submodule-looking and Git
@@ -56,9 +61,10 @@ directory. The harness does not start the installed app or modify an existing
 working copy. It saves light/dark screenshots at 1024×600 for combined and
 side-by-side historical diffs, a larger layout, error/authentication states,
 and changed-path rows with Unicode and copy metadata under the system temporary
-directory in `sourcegit-svn-ui-artifacts`. Working-copy property and conflict
-views are captured in both themes at 1024×600. Add/remove controls, removal results, and
-action errors and Undo results are also captured in both themes. Set `SOURCEGIT_SVN_UI_ARTIFACTS`
+directory in `sourcegit-svn-ui-artifacts`. Working-copy property, conflict,
+selected-action, narrow-window, Update, Commit, and bounded Revert confirmation
+screens are captured in both themes. Remove/Undo results and action errors are
+also captured in both themes. Set `SOURCEGIT_SVN_UI_ARTIFACTS`
 to choose another artifact directory.
 
 Headless checks do not prove native macOS window integration, clipboard
@@ -76,6 +82,9 @@ local status and read-only diffs against BASE. Select an unversioned row and cho
 eligible tracked or missing row and confirm to schedule deletion while retaining
 local files. **Undo** cancels a pending addition or removal and preserves local
 contents; cancelling an addition leaves files unversioned. It does not discard
-ordinary local edits. These actions do not commit changes. Choose **Load more** for older
-revisions, or **Refresh** (F5) for the active tab. Checkout, commit, update,
-conflict resolution, and SVN over SSH are outside this increment.
+ordinary local edits. The **Selected actions** menu applies Add, Remove, Undo,
+Revert, and Commit to the selected status rows; confirmation screens list the full
+selected scope. The toolbar updates to HEAD or a chosen revision and opens the
+commit form for path selection. Choose **Load more** for older revisions, or
+**Refresh** (F5) for the active tab. Conflict resolution and SVN over SSH are
+outside this increment.

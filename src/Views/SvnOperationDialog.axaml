@@ -1,0 +1,63 @@
+<v:ChromelessWindow xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:v="using:SourceGit.Views"
+                    x:Class="SourceGit.Views.SvnOperationDialog"
+                    x:Name="ThisControl"
+                    Icon="/App.ico"
+                    Width="620" MinWidth="480" Height="560" MinHeight="280" MaxHeight="760"
+                    CanResize="False" CloseOnESC="True"
+                    WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Grid Grid.Row="0" Height="28" IsVisible="{Binding !#ThisControl.UseSystemWindowFrame}">
+      <Border Background="{DynamicResource Brush.TitleBar}" BorderThickness="0,0,0,1"
+              BorderBrush="{DynamicResource Brush.Border0}" PointerPressed="BeginMoveWindow"/>
+      <TextBlock x:Name="DialogTitle" Classes="bold" HorizontalAlignment="Center"
+                 VerticalAlignment="Center" IsHitTestVisible="False"/>
+      <v:CaptionButtons HorizontalAlignment="Right" IsCloseButtonOnly="True"
+                        IsVisible="{OnPlatform True, macOS=False}"/>
+    </Grid>
+    <ScrollViewer Grid.Row="1" Margin="16" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="12">
+      <StackPanel x:Name="WorkingCopyHeading" Spacing="4">
+        <TextBlock Text="{DynamicResource Text.SVN.WorkingCopy}" FontWeight="Bold"/>
+        <TextBlock x:Name="WorkingCopyPath" TextWrapping="Wrap" MaxLines="2" MaxHeight="40" TextTrimming="CharacterEllipsis"
+                   ToolTip.Tip="{Binding #WorkingCopyPath.Text}" Foreground="{DynamicResource Brush.FG2}"/>
+      </StackPanel>
+      <StackPanel x:Name="UpdateForm" Spacing="8">
+        <TextBlock Text="{DynamicResource Text.SVN.Update.Scope}" TextWrapping="Wrap"/>
+        <RadioButton x:Name="LatestRevision" GroupName="Revision" Content="{DynamicResource Text.SVN.Update.Latest}"
+                     IsCheckedChanged="OnFormChanged"/>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <RadioButton x:Name="SpecificRevision" GroupName="Revision" Content="{DynamicResource Text.SVN.Update.Specific}"
+                       IsCheckedChanged="OnFormChanged"/>
+          <TextBox x:Name="RevisionInput" Width="180" Watermark="{DynamicResource Text.SVN.Revision}"
+                   TextChanged="OnTextChanged" AutomationProperties.Name="{DynamicResource Text.SVN.Revision}"/>
+        </StackPanel>
+      </StackPanel>
+      <StackPanel x:Name="CommitForm" Spacing="8" IsVisible="False">
+        <TextBlock Text="{DynamicResource Text.SVN.Commit.Scope}" TextWrapping="Wrap"/>
+        <TextBlock x:Name="CandidateCount" FontWeight="Bold"/>
+        <TextBlock x:Name="CommitSelectionNotice" TextWrapping="Wrap" IsVisible="False" Foreground="{DynamicResource Brush.FG2}"/>
+        <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Border2}" Background="{DynamicResource Brush.Contents}">
+          <ScrollViewer MaxHeight="220" MinHeight="80" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="CommitCandidates" Margin="8" Spacing="4"/>
+          </ScrollViewer>
+        </Border>
+        <TextBlock Text="{DynamicResource Text.SVN.Commit.Message}" FontWeight="Bold"/>
+        <TextBox x:Name="CommitMessage" AcceptsReturn="True" TextWrapping="Wrap" Height="100"
+                 TextChanged="OnTextChanged" AutomationProperties.Name="{DynamicResource Text.SVN.Commit.Message}"/>
+      </StackPanel>
+      <ScrollViewer x:Name="ConfirmationForm" IsVisible="False" MaxHeight="360" HorizontalScrollBarVisibility="Disabled">
+        <TextBlock x:Name="ConfirmationMessage" TextWrapping="Wrap"/>
+      </ScrollViewer>
+      <TextBlock x:Name="ValidationMessage" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}"/>
+      </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="16,0,16,16">
+      <Button x:Name="CancelButton" Classes="flat" Height="30" MinWidth="80" Padding="12,0"
+              Content="{DynamicResource Text.Cancel}" Click="OnCancel"/>
+      <Button x:Name="AcceptButton" Classes="flat primary" Height="30" MinWidth="80" Padding="12,0"
+              IsEnabled="False" Click="OnAccept"/>
+    </StackPanel>
+  </Grid>
+</v:ChromelessWindow>
