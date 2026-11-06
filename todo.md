@@ -27,10 +27,10 @@
 - [x] Add explicit local Revert with a path/scope confirmation, keeping Undo Add/Remove as content-preserving scheduling actions.
 - [x] Add whole-working-copy Update and Update to revision, including an entry from the selected history revision.
 - [x] Add Commit with a reviewed, explicit path selection and required message; leave unchecked changes uncommitted.
+- [x] Add single-path conflict inspection and explicit resolution: compare available file versions, inspect property reports/current diffs, and review tree-conflict details. Confirm path-wide resolution, require acknowledgment for manually repaired trees, reject stale snapshots, and refresh local status after attempted changes.
 
 ## Later increments
 
-- [ ] Add conflict inspection and resolution workflows.
 - [ ] Add SVN-aware Rename/Move/Copy, Ignore, editable Properties, and Changelists.
 - [ ] Add Cleanup and missing-file/rename repair workflows with explicit scope.
 - [ ] Add checkout and remote repository browsing as separate entry points from opening an existing working copy.
@@ -45,8 +45,15 @@
 - [x] 60 portable backend regression groups and authenticated local `svnserve` integration, including unsafe-path/ancestor rejection, exact commit selection, missing-file removal/commit, and Unicode commit messages.
 - [x] 213 focused and 350 full headless UI checks, including pointer/keyboard paths, multi-selection, confirmation/cancellation, Update/Revert/Commit, and failed-commit draft recovery. Rendered working-copy and dialog screenshots inspected in both themes, including the compact layout.
 
+## Conflict increment verification (2026-11-06)
+
+- [x] 65 portable backend regression groups, including bounded artifact reads, stale snapshot rejection, malformed/unsafe metadata, missing tree victims, cancellation, and refusal to resolve an existing file without a bounded current-content snapshot.
+- [x] Disposable `file://` conflict integration: Base/Local/Incoming choices, combined text/property conflicts, root and directory properties, missing and manually recreated tree victims, and preservation of child conflicts and unversioned files. Authenticated local `svnserve` integration also passes.
+- [x] 432 full headless UI/workflow checks, followed by 84 focused conflict checks covering the final source. Light/dark renders inspected, including the minimum 620×480 dialog size, stale recovery, and property-report layout. Independent source review approved.
+- [x] Release build and formatting verification on macOS arm64 with .NET 10.0.400 and SVN 1.14.5.
+
 ## Remaining validation
 
-- [ ] Exercise the native desktop interface in light/dark themes: folder opening, F5, keyboard navigation, clipboard copy, resizing, authentication, cancellation, and closing/restoring tabs. Headless checks already cover the core workflows and rendered layouts.
+- [ ] Exercise the native desktop interface in light/dark themes: folder opening, F5, keyboard navigation, clipboard copy, resizing, authentication, cancellation, conflict inspection/resolution, and closing/restoring tabs. Headless checks already cover the core workflows and rendered layouts.
 - [ ] Verify native credential-provider behavior and remembered credentials on supported platforms; current authenticated integration uses an isolated config with password stores disabled.
 - [ ] Validate Native AOT publishing and packaged-app behavior for the SVN feature. Release compilation alone does not cover these.

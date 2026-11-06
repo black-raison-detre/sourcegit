@@ -72,7 +72,7 @@ internal static class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "update" or "commit" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "resolve" or "update" or "commit" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -144,6 +144,23 @@ internal static class Program
             return 0;
         }
 
+        if (args[0] == "resolve" && scenario.StartsWith("wc_conflict_", StringComparison.Ordinal))
+        {
+            if (scenario == "wc_conflict_resolve_slow")
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+            if (scenario == "wc_conflict_resolve_noop")
+                return 0;
+            if (scenario == "wc_conflict_resolve_fail")
+            {
+                Console.Error.WriteLine("svn: E200000: synthetic conflict resolution failure");
+                return 1;
+            }
+            var separator = Array.IndexOf(args, "--");
+            if (separator >= 0 && separator + 1 < args.Length)
+                await File.WriteAllTextAsync(args[separator + 1].TrimEnd('@') + ".resolved", "resolved").ConfigureAwait(false);
+            return 0;
+        }
+
         if (args.Contains("--version", StringComparer.Ordinal))
         {
             switch (scenario)
@@ -175,6 +192,15 @@ internal static class Program
         if (args[0] == "info" && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
         {
             WriteWorkingCopyInfo();
+            return 0;
+        }
+
+        if (args[0] == "info" && scenario.StartsWith("wc_conflict_", StringComparison.Ordinal))
+        {
+            if (args.Contains("--depth", StringComparer.Ordinal))
+                WriteWorkingCopyConflictInfo(scenario, args);
+            else
+                WriteWorkingCopyInfo();
             return 0;
         }
 
@@ -220,6 +246,42 @@ internal static class Program
         if (args[0] == "status" && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
         {
             WriteWorkingCopyActionStatus();
+            return 0;
+        }
+
+        if (args[0] == "status" && scenario.StartsWith("wc_conflict_", StringComparison.Ordinal))
+        {
+            if (scenario == "wc_conflict_status_malformed")
+                Console.WriteLine("<status><target></status>");
+            else if (scenario == "wc_conflict_status_large")
+            {
+                Console.Write("<status><target path='x'><!--");
+                await Console.Out.WriteAsync(new string('x', 8 * 1024 * 1024 + 64)).ConfigureAwait(false);
+                Console.WriteLine("--></target></status>");
+            }
+            else if (scenario == "wc_conflict_status_slow")
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+            else
+                WriteWorkingCopyConflictStatus();
+            return 0;
+        }
+
+        if (args[0] == "proplist" && scenario.StartsWith("wc_conflict_", StringComparison.Ordinal))
+        {
+            if (scenario is "wc_conflict_tree_missing" or "wc_conflict_tree_repaired")
+            {
+                Console.Error.WriteLine("svn: E200009: no versioned node at this path");
+                return 1;
+            }
+            if (scenario == "wc_conflict_properties_slow")
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+            if (scenario == "wc_conflict_properties_fail")
+            {
+                Console.Error.WriteLine("svn: E200000: synthetic property query failure");
+                return 1;
+            }
+            var target = args[^1].TrimEnd('@');
+            Console.WriteLine($"<properties><target path=\"{System.Security.SecurityElement.Escape(target)}\"><property name=\"custom:conflict\">current working property</property></target></properties>");
             return 0;
         }
 
@@ -612,6 +674,62 @@ internal static class Program
             ? $"<entry path=\"{System.Security.SecurityElement.Escape(Path.GetDirectoryName(target) ?? string.Empty)}\" kind=\"dir\"><wc-status item=\"normal\" revision=\"12\" props=\"none\" switched=\"true\"/></entry>"
             : string.Empty;
         Console.WriteLine($"<status><target path=\"{System.Security.SecurityElement.Escape(root)}\"><entry path=\"{System.Security.SecurityElement.Escape(target)}\"{kindAttribute}><wc-status item=\"{System.Security.SecurityElement.Escape(item)}\" revision=\"12\" props=\"{System.Security.SecurityElement.Escape(properties)}\"/></entry>{externalChild}{deletedDescendant}{switchedAncestor}</target></status>");
+    }
+
+    private static void WriteWorkingCopyConflictStatus()
+    {
+        var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+        var scenario = Environment.GetEnvironmentVariable(ScenarioVariable) ?? string.Empty;
+        var target = scenario == "wc_conflict_root_property"
+            ? root
+            : Path.Combine(root, "conflicted @ file.txt");
+        var kind = scenario == "wc_conflict_root_property" ? "dir" : "file";
+        var item = scenario is "wc_conflict_tree_missing" or "wc_conflict_tree_repaired" ? "deleted" : scenario == "wc_conflict_tree" ? "added" : scenario == "wc_conflict_property" ? "normal" : "conflicted";
+        var props = scenario is "wc_conflict_property" or "wc_conflict_root_property" or "wc_conflict_text" or "wc_conflict_resolve_slow" ? "conflicted" : "none";
+        var copied = scenario == "wc_conflict_tree" ? " copied=\"true\"" : string.Empty;
+        var tree = scenario is "wc_conflict_tree" or "wc_conflict_tree_missing" or "wc_conflict_tree_repaired" ? " tree-conflicted=\"true\"" : string.Empty;
+        var kindAttribute = scenario == "wc_conflict_tree_missing" ? string.Empty : $" kind=\"{kind}\"";
+        var entryXml = File.Exists(target + ".resolved")
+            ? string.Empty
+            : $"<entry path=\"{System.Security.SecurityElement.Escape(target)}\"{kindAttribute}><wc-status item=\"{item}\" revision=\"13\" props=\"{props}\"{copied}{tree}/></entry>";
+        Console.WriteLine($"<status><target path=\"{System.Security.SecurityElement.Escape(root)}\">{entryXml}</target></status>");
+    }
+
+    private static void WriteWorkingCopyConflictInfo(string scenario, string[] args)
+    {
+        if (scenario == "wc_conflict_info_malformed")
+        {
+            Console.WriteLine("<info><entry><conflict></info>");
+            return;
+        }
+        var separator = Array.IndexOf(args, "--");
+        var target = separator >= 0 && separator + 1 < args.Length ? args[separator + 1].TrimEnd('@') : string.Empty;
+        var root = Environment.GetEnvironmentVariable(WorkingCopyRootVariable) ?? string.Empty;
+        var escapedTarget = System.Security.SecurityElement.Escape(target);
+        var escapedRoot = System.Security.SecurityElement.Escape(root);
+        var repo = "file:///fixture/repository";
+        var versionLeft = $"<version side=\"source-left\" kind=\"file\" path-in-repos=\"conflicted @ file.txt\" repos-url=\"{repo}\" revision=\"12\"/>";
+        var versionRight = $"<version side=\"source-right\" kind=\"file\" path-in-repos=\"conflicted @ file.txt\" repos-url=\"{repo}\" revision=\"13\"/>";
+        string conflict;
+        if (scenario is "wc_conflict_tree" or "wc_conflict_tree_missing" or "wc_conflict_tree_repaired")
+            conflict = $"<tree-conflict victim=\"conflicted @ file.txt\" kind=\"file\" action=\"delete\" reason=\"edit\" operation=\"update\">{versionLeft}{versionRight}</tree-conflict>";
+        else if (scenario == "wc_conflict_property" || scenario == "wc_conflict_root_property")
+        {
+            var propertyFile = scenario == "wc_conflict_root_property"
+                ? Path.Combine(root, "dir_conflicts.prej")
+                : target + ".prej";
+            conflict = $"<conflict type=\"property\" operation=\"update\">{versionLeft}{versionRight}<prop-file>{System.Security.SecurityElement.Escape(propertyFile)}</prop-file></conflict>";
+        }
+        else
+        {
+            var basePath = scenario == "wc_conflict_unsafe"
+                ? Path.GetFullPath(Path.Combine(root, "..", "outside-conflict-artifact"))
+                : target + ".r12";
+            conflict = $"<conflict type=\"text\" operation=\"update\">{versionLeft}{versionRight}<prev-base-file>{System.Security.SecurityElement.Escape(basePath)}</prev-base-file><prev-wc-file>{System.Security.SecurityElement.Escape(target + ".mine")}</prev-wc-file><cur-base-file>{System.Security.SecurityElement.Escape(target + ".r13")}</cur-base-file></conflict>" +
+                $"<conflict type=\"property\" operation=\"update\">{versionLeft}{versionRight}<prop-file>{System.Security.SecurityElement.Escape(target + ".prej")}</prop-file></conflict>";
+        }
+        var entryKind = scenario == "wc_conflict_root_property" ? "dir" : "file";
+        Console.WriteLine($"<info><entry kind=\"{entryKind}\" path=\"{escapedTarget}\" revision=\"13\"><url>file:///fixture/repository/conflicted%20file.txt</url><repository><root>file:///fixture/repository</root><uuid>fixture-conflict-uuid</uuid></repository><wc-info><wcroot-abspath>{escapedRoot}</wcroot-abspath></wc-info>{conflict}</entry></info>");
     }
 
     private static bool HasWorkingCopyLinkFixtures(string root)
@@ -1654,6 +1772,148 @@ internal static class Program
             Equal(Path.GetFullPath(statusRoot) + "@", statusCall.Arguments[^1]);
         }).ConfigureAwait(false);
 
+        await CheckAsync("conflict inspection reads bounded artifacts and resolution revalidates a reviewed fingerprint", async () =>
+        {
+            var target = Path.Combine(statusRoot, "conflicted @ file.txt");
+            if (File.Exists(target + ".resolved")) File.Delete(target + ".resolved");
+            await File.WriteAllTextAsync(target, "working text\n").ConfigureAwait(false);
+            await File.WriteAllTextAsync(target + ".r12", "base text\n").ConfigureAwait(false);
+            await File.WriteAllTextAsync(target + ".mine", "mine text\n").ConfigureAwait(false);
+            await File.WriteAllTextAsync(target + ".r13", "theirs text\n").ConfigureAwait(false);
+            await File.WriteAllTextAsync(target + ".prej", "property rejects\n").ConfigureAwait(false);
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_conflict_text", workingCopyPath);
+            var result = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            Equal("Ready", result.Status);
+            True(result.Conflict.HasTextConflict && result.Conflict.HasPropertyConflict && !result.Conflict.HasTreeConflict,
+                "text/property conflict kinds were not parsed");
+            Equal("working text\n", Encoding.UTF8.GetString(result.Conflict.Working.Content));
+            Equal("base text\n", Encoding.UTF8.GetString(result.Conflict.Base.Content));
+            Equal("mine text\n", Encoding.UTF8.GetString(result.Conflict.Mine.Content));
+            Equal("theirs text\n", Encoding.UTF8.GetString(result.Conflict.Theirs.Content));
+            True(result.Conflict.PropertyReject.Content != null, "reported property conflict artifact was not read");
+            SequenceEqual(new[] { "working", "base", "mine-full", "theirs-full" }, result.Conflict.AvailableAccepts);
+            True(result.Conflict.Description.Contains("source-left", StringComparison.Ordinal) &&
+                result.Conflict.Description.Contains("source-right", StringComparison.Ordinal),
+                "conflict source labels were not included in the description");
+
+            var resolved = await Svn.ResolveConflictAsync(executable, config, workingCopyPath,
+                "conflicted @ file.txt", "theirs-full", result.Conflict.Fingerprint).ConfigureAwait(false);
+            Equal("Ready", resolved.Status);
+            var resolveCall = ReadInvocations(invocations).Single(call => call.Arguments[0] == "resolve");
+            SequenceEqual(new[] { "resolve", "--accept", "theirs-full", "--depth", "empty", "--non-interactive",
+                "--no-auth-cache", "--config-dir", Path.GetFullPath(config), "--", target + "@" }, resolveCall.Arguments);
+            True(!resolveCall.Arguments.Contains("--recursive", StringComparer.Ordinal), "conflict resolution became recursive");
+
+            File.Delete(target + ".resolved");
+            var noopCalls = PrepareHistoryScenario(temp.Path, "wc_conflict_resolve_noop", workingCopyPath);
+            var noopSnapshot = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            var noop = await Svn.ResolveConflictAsync(executable, config, workingCopyPath,
+                "conflicted @ file.txt", "working", noopSnapshot.Conflict.Fingerprint).ConfigureAwait(false);
+            Equal("Failed", noop.Status);
+            True(ReadInvocations(noopCalls).Any(call => call.Arguments[0] == "resolve"), "noop fixture did not exercise postcondition verification");
+
+            File.Delete(target + ".resolved");
+            invocations = PrepareHistoryScenario(temp.Path, "wc_conflict_text", workingCopyPath);
+            var staleSnapshot = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            await File.WriteAllTextAsync(target, "changed after review\n").ConfigureAwait(false);
+            var stale = await Svn.ResolveConflictAsync(executable, config, workingCopyPath,
+                "conflicted @ file.txt", "working", staleSnapshot.Conflict.Fingerprint).ConfigureAwait(false);
+            Equal("WorkingCopyChanged", stale.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "resolve"), "stale snapshot launched svn resolve");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("conflict inspection rejects malformed and unsafe artifact metadata", async () =>
+        {
+            var target = Path.Combine(statusRoot, "conflicted @ file.txt");
+            if (File.Exists(target + ".resolved")) File.Delete(target + ".resolved");
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_conflict_info_malformed", workingCopyPath);
+            var malformed = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            Equal("Failed", malformed.Status);
+
+            invocations = PrepareHistoryScenario(temp.Path, "wc_conflict_unsafe", workingCopyPath);
+            var unsafeArtifact = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            Equal("UnsafePath", unsafeArtifact.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "resolve"), "unsafe metadata launched svn resolve");
+
+            invocations = PrepareHistoryScenario(temp.Path, "wc_conflict_status_malformed", workingCopyPath);
+            var malformedStatus = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            Equal("Failed", malformedStatus.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "info" && call.Arguments.Contains("--depth", StringComparer.Ordinal)),
+                "malformed status was followed by conflict info");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("oversized working content blocks destructive choices despite a same-size restored-mtime edit", async () =>
+        {
+            var target = Path.Combine(statusRoot, "conflicted @ file.txt");
+            var bytes = new byte[8 * 1024 * 1024 + 1];
+            bytes[^1] = 0x21;
+            await File.WriteAllBytesAsync(target, bytes).ConfigureAwait(false);
+            var originalTimestamp = DateTime.UtcNow.AddMinutes(-5);
+            File.SetLastWriteTimeUtc(target, originalTimestamp);
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_conflict_text", workingCopyPath);
+            var snapshot = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            Equal("Ready", snapshot.Status);
+            True(snapshot.Conflict.Working.Content == null, "oversized working content was not bounded");
+            Equal(0, snapshot.Conflict.AvailableAccepts.Count);
+
+            bytes[^1] = 0x42;
+            await File.WriteAllBytesAsync(target, bytes).ConfigureAwait(false);
+            File.SetLastWriteTimeUtc(target, originalTimestamp);
+            var changedSnapshot = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            Equal(snapshot.Conflict.Fingerprint, changedSnapshot.Conflict.Fingerprint);
+            var rejectedWorking = await Svn.ResolveConflictAsync(executable, config, workingCopyPath,
+                "conflicted @ file.txt", "working", snapshot.Conflict.Fingerprint).ConfigureAwait(false);
+            Equal("NotEligible", rejectedWorking.Status);
+            var rejectedDestructive = await Svn.ResolveConflictAsync(executable, config, workingCopyPath,
+                "conflicted @ file.txt", "theirs-full", snapshot.Conflict.Fingerprint).ConfigureAwait(false);
+            Equal("NotEligible", rejectedDestructive.Status);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "resolve"),
+                "oversized working file allowed a destructive SVN accept");
+            Equal(bytes.Length, (await File.ReadAllBytesAsync(target).ConfigureAwait(false)).Length);
+            Equal((byte)0x42, (await File.ReadAllBytesAsync(target).ConfigureAwait(false))[^1]);
+        }).ConfigureAwait(false);
+
+        await CheckAsync("missing tree-conflict victims are inspectable without querying absent properties", async () =>
+        {
+            var target = Path.Combine(statusRoot, "conflicted @ file.txt");
+            if (File.Exists(target)) File.Delete(target);
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_conflict_tree_missing", workingCopyPath);
+            var result = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            Equal("Ready", result.Status);
+            True(result.Conflict.HasTreeConflict, "missing tree conflict was lost");
+            True(result.Conflict.Working.Content == null && result.Conflict.Working.Details.Contains("missing", StringComparison.OrdinalIgnoreCase),
+                "missing tree victim was not represented explicitly");
+            SequenceEqual(new[] { "working" }, result.Conflict.AvailableAccepts);
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "proplist"),
+                "missing tree victim queried properties that have no working node");
+
+            await File.WriteAllTextAsync(target, "manually repaired tree victim\n").ConfigureAwait(false);
+            invocations = PrepareHistoryScenario(temp.Path, "wc_conflict_tree_repaired", workingCopyPath);
+            var repaired = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            Equal("Ready", repaired.Status);
+            Equal("manually repaired tree victim\n", Encoding.UTF8.GetString(repaired.Conflict.Working.Content));
+            True(!ReadInvocations(invocations).Any(call => call.Arguments[0] == "proplist"),
+                "a manually restored scheduled-delete tree victim queried unavailable properties");
+        }).ConfigureAwait(false);
+
+        await CheckAsync("conflict resolution cancellation terminates its child", async () =>
+        {
+            var target = Path.Combine(statusRoot, "conflicted @ file.txt");
+            if (File.Exists(target + ".resolved")) File.Delete(target + ".resolved");
+            var invocations = PrepareHistoryScenario(temp.Path, "wc_conflict_text", workingCopyPath);
+            var snapshot = await Svn.GetConflictAsync(executable, config, workingCopyPath, "conflicted @ file.txt").ConfigureAwait(false);
+            Environment.SetEnvironmentVariable(ScenarioVariable, "wc_conflict_resolve_slow");
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(800));
+            var result = await Svn.ResolveConflictAsync(executable, config, workingCopyPath,
+                "conflicted @ file.txt", "working", snapshot.Conflict.Fingerprint, cancellation.Token).ConfigureAwait(false);
+            Equal("Cancelled", result.Status);
+            var processCall = ReadInvocations(invocations).Last(call => call.Arguments[0] == "resolve");
+            var waitUntil = Stopwatch.StartNew();
+            while (IsProcessRunning(processCall.ProcessId) && waitUntil.Elapsed < TimeSpan.FromSeconds(2))
+                await Task.Delay(20).ConfigureAwait(false);
+            True(!IsProcessRunning(processCall.ProcessId), "cancelled conflict-resolution child remained alive");
+        }).ConfigureAwait(false);
+
         await CheckAsync("working-copy add/remove eligibility excludes stale, conflicting, and unsafe entries", async () =>
         {
             True(Svn.CanAdd(new Svn.SvnWorkingCopyEntry("new.txt", "unversioned", "none", Kind: "file")), "unversioned file was not addable");
@@ -2388,6 +2648,7 @@ internal static class Program
                 "[global]\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
 
             await RunWorkingCopyActionIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
+            await RunWorkingCopyConflictIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
 
             var publicUrl = $"svn://127.0.0.1:{port}/public";
             var privateUrl = $"svn://127.0.0.1:{port}/private";
@@ -2732,6 +2993,200 @@ internal static class Program
                 server.Dispose();
             }
         }
+    }
+
+    private static async Task RunWorkingCopyConflictIntegrationAsync(string svn, string svnadmin, string tempDirectory)
+    {
+        var root = Path.Combine(tempDirectory, "working-copy-conflicts");
+        var repository = Path.Combine(root, "repository");
+        var seed = Path.Combine(root, "seed");
+        var local = Path.Combine(root, "local @ working copy");
+        var incoming = Path.Combine(root, "incoming working copy");
+        var config = Path.Combine(root, "client config");
+        var directory = Path.Combine(seed, "directory conflict");
+        var tree = Path.Combine(seed, "tree conflict");
+        Directory.CreateDirectory(directory);
+        Directory.CreateDirectory(tree);
+        Directory.CreateDirectory(config);
+        await File.WriteAllTextAsync(Path.Combine(seed, "text base.txt"), "base text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "text mine.txt"), "base text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "text theirs.txt"), "base text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "property only.txt"), "unchanged text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(seed, "mixed conflict.txt"), "base mixed text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(directory, "child conflict.txt"), "base child text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(tree, "tracked.txt"), "base tree text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(tree, "missing victim.txt"), "base missing-victim text\n").ConfigureAwait(false);
+
+        await RunRequiredAsync(svnadmin, "create", repository).ConfigureAwait(false);
+        var repositoryUrl = new Uri(repository).AbsoluteUri;
+        await RunRequiredAsync(svn, "import", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--message", "Create conflict fixture", seed, repositoryUrl).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            repositoryUrl, local).ConfigureAwait(false);
+        await RunRequiredAsync(svn, "checkout", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            repositoryUrl, incoming).ConfigureAwait(false);
+
+        async Task SetPropertyAsync(string workingCopy, string relative, string name, string value)
+        {
+            var target = Path.Combine(workingCopy, relative);
+            await RunRequiredAsync(svn, "propset", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+                name, value, "--", target + "@").ConfigureAwait(false);
+        }
+
+        async Task CommitAsync(string workingCopy, string message)
+        {
+            await RunRequiredAsync(svn, "commit", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+                "--message", message, "--", workingCopy + "@").ConfigureAwait(false);
+        }
+
+        const string propertyName = "sourcegit:conflict";
+        await SetPropertyAsync(incoming, "property only.txt", propertyName, "base").ConfigureAwait(false);
+        await SetPropertyAsync(incoming, "mixed conflict.txt", propertyName, "base").ConfigureAwait(false);
+        await SetPropertyAsync(incoming, "directory conflict", propertyName, "base").ConfigureAwait(false);
+        await SetPropertyAsync(incoming, ".", propertyName, "base").ConfigureAwait(false);
+        await CommitAsync(incoming, "Add conflict property baselines").ConfigureAwait(false);
+        await RunRequiredAsync(svn, "update", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", local + "@").ConfigureAwait(false);
+
+        var localValues = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["text base.txt"] = "mine text\n",
+            ["text mine.txt"] = "mine text\n",
+            ["text theirs.txt"] = "mine text\n",
+            ["mixed conflict.txt"] = "mine mixed text\n",
+            [Path.Combine("directory conflict", "child conflict.txt")] = "mine child text\n",
+            [Path.Combine("tree conflict", "tracked.txt")] = "mine tree text\n",
+        };
+        foreach (var pair in localValues)
+            await File.WriteAllTextAsync(Path.Combine(local, pair.Key), pair.Value).ConfigureAwait(false);
+        await SetPropertyAsync(local, "property only.txt", propertyName, "mine").ConfigureAwait(false);
+        await SetPropertyAsync(local, "mixed conflict.txt", propertyName, "mine").ConfigureAwait(false);
+        await SetPropertyAsync(local, "directory conflict", propertyName, "mine").ConfigureAwait(false);
+        await SetPropertyAsync(local, ".", propertyName, "mine").ConfigureAwait(false);
+        var missingVictimPath = Path.Combine(local, "tree conflict", "missing victim.txt");
+        await RunRequiredAsync(svn, "delete", "--force", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", missingVictimPath + "@").ConfigureAwait(false);
+        var unversionedPath = Path.Combine(local, "tree conflict", "unversioned local.txt");
+        const string unversionedContents = "keep this unrelated local file\n";
+        await File.WriteAllTextAsync(unversionedPath, unversionedContents).ConfigureAwait(false);
+
+        await File.WriteAllTextAsync(Path.Combine(incoming, "text base.txt"), "theirs text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(incoming, "text mine.txt"), "theirs text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(incoming, "text theirs.txt"), "theirs text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(incoming, "mixed conflict.txt"), "theirs mixed text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(incoming, "directory conflict", "child conflict.txt"), "theirs child text\n").ConfigureAwait(false);
+        await File.WriteAllTextAsync(Path.Combine(incoming, "tree conflict", "missing victim.txt"), "theirs changed missing-victim text\n").ConfigureAwait(false);
+        await SetPropertyAsync(incoming, "property only.txt", propertyName, "theirs").ConfigureAwait(false);
+        await SetPropertyAsync(incoming, "mixed conflict.txt", propertyName, "theirs").ConfigureAwait(false);
+        await SetPropertyAsync(incoming, "directory conflict", propertyName, "theirs").ConfigureAwait(false);
+        await SetPropertyAsync(incoming, ".", propertyName, "theirs").ConfigureAwait(false);
+        var incomingTreeFile = Path.Combine(incoming, "tree conflict", "tracked.txt");
+        await RunRequiredAsync(svn, "delete", "--force", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", incomingTreeFile + "@").ConfigureAwait(false);
+        await CommitAsync(incoming, "Create local conflicts").ConfigureAwait(false);
+        await RunRequiredAsync(svn, "update", "--accept", "postpone", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", local + "@").ConfigureAwait(false);
+
+        var initialStatus = await Svn.GetStatusAsync(svn, config, local).ConfigureAwait(false);
+        Equal("Ready", initialStatus.Status);
+        True(initialStatus.Entries.Any(entry => entry.Path == "text base.txt" && entry.Item == "conflicted"),
+            "local text edit did not conflict with incoming text");
+        True(initialStatus.Entries.Any(entry => entry.Path == "property only.txt" && entry.Properties == "conflicted"),
+            "property-only edits did not conflict");
+        True(initialStatus.Entries.Any(entry => entry.Path == "directory conflict" && entry.Properties == "conflicted"),
+            "directory property edits did not conflict");
+        True(initialStatus.Entries.Any(entry => entry.Path == Path.Combine("tree conflict", "tracked.txt") && entry.IsTreeConflicted),
+            "local edit/incoming delete did not produce a tree conflict");
+        True(initialStatus.Entries.Any(entry => entry.Path == Path.Combine("tree conflict", "missing victim.txt") && entry.IsTreeConflicted),
+            "local delete/incoming edit did not produce a missing-victim tree conflict");
+
+        var blockedChild = await Svn.ResolveConflictAsync(svn, config, local, "text base.txt", "base", "reviewed-fingerprint")
+            .ConfigureAwait(false);
+        Equal("NotEligible", blockedChild.Status);
+        await ResolveAsync(".", "working", snapshot =>
+            True(snapshot.HasPropertyConflict && snapshot.Path == ".", "working-copy root property conflict was not inspected"))
+            .ConfigureAwait(false);
+
+        async Task ResolveAsync(string relativePath, string accept, Action<Svn.ConflictSnapshot> verifySnapshot = null)
+        {
+            var inspection = await Svn.GetConflictAsync(svn, config, local, relativePath).ConfigureAwait(false);
+            True(inspection.Status == "Ready", $"conflict inspection for {relativePath} returned {inspection.Status}: {inspection.Details}");
+            if (relativePath == "text base.txt")
+            {
+                var repeated = await Svn.GetConflictAsync(svn, config, local, relativePath).ConfigureAwait(false);
+                Equal(inspection.Conflict.Fingerprint, repeated.Conflict?.Fingerprint);
+            }
+            True(inspection.Conflict.AvailableAccepts.Contains(accept, StringComparer.Ordinal),
+                $"{accept} was not available for {relativePath}: {string.Join(", ", inspection.Conflict.AvailableAccepts)}");
+            verifySnapshot?.Invoke(inspection.Conflict);
+            var result = await Svn.ResolveConflictAsync(svn, config, local, relativePath, accept,
+                inspection.Conflict.Fingerprint).ConfigureAwait(false);
+            True(result.Status == "Ready", $"resolve {relativePath} with {accept} returned {result.Status}: {result.Details}");
+        }
+
+        await ResolveAsync("text base.txt", "base", snapshot => True(snapshot.HasTextConflict && !snapshot.HasPropertyConflict, "text-only conflict kinds were wrong"))
+            .ConfigureAwait(false);
+        await ResolveAsync("text mine.txt", "mine-full").ConfigureAwait(false);
+        await ResolveAsync("text theirs.txt", "theirs-full").ConfigureAwait(false);
+        await ResolveAsync("property only.txt", "theirs-full", snapshot =>
+        {
+            True(!snapshot.HasTextConflict && snapshot.HasPropertyConflict, "property-only conflict kinds were wrong");
+            True(snapshot.AvailableAccepts.Contains("base", StringComparer.Ordinal), "property-only base choice was omitted");
+        }).ConfigureAwait(false);
+        await ResolveAsync("mixed conflict.txt", "theirs-full", snapshot =>
+            True(snapshot.HasTextConflict && snapshot.HasPropertyConflict, "combined conflict kinds were not preserved"))
+            .ConfigureAwait(false);
+        var childConflictPath = Path.Combine(local, "directory conflict", "child conflict.txt");
+        var childConflictContents = await File.ReadAllBytesAsync(childConflictPath).ConfigureAwait(false);
+        await ResolveAsync("directory conflict", "working", snapshot =>
+            True(snapshot.HasPropertyConflict && !snapshot.HasTreeConflict, "directory property conflict kinds were wrong"))
+            .ConfigureAwait(false);
+
+        var afterDirectoryResolve = await Svn.GetStatusAsync(svn, config, local).ConfigureAwait(false);
+        True(afterDirectoryResolve.Entries.Any(entry => entry.Path == Path.Combine("directory conflict", "child conflict.txt") && entry.Item == "conflicted"),
+            "depth-empty directory resolution cleared a conflicted child");
+        SequenceEqual(childConflictContents, await File.ReadAllBytesAsync(childConflictPath).ConfigureAwait(false));
+        await ResolveAsync(Path.Combine("directory conflict", "child conflict.txt"), "theirs-full").ConfigureAwait(false);
+        var missingTree = await Svn.GetConflictAsync(svn, config, local, Path.Combine("tree conflict", "missing victim.txt")).ConfigureAwait(false);
+        True(missingTree.Status == "Ready", $"missing tree victim inspection returned {missingTree.Status}: {missingTree.Details}");
+        True(missingTree.Conflict.HasTreeConflict && missingTree.Conflict.Working.Content == null &&
+            missingTree.Conflict.Working.Details.Contains("missing", StringComparison.OrdinalIgnoreCase),
+            "missing tree victim was not represented explicitly");
+        SequenceEqual(new[] { "working" }, missingTree.Conflict.AvailableAccepts);
+        await File.WriteAllTextAsync(missingVictimPath, "manually repaired missing victim\n").ConfigureAwait(false);
+        var repairedTree = await Svn.GetConflictAsync(svn, config, local, Path.Combine("tree conflict", "missing victim.txt")).ConfigureAwait(false);
+        True(repairedTree.Status == "Ready", $"repaired tree victim inspection returned {repairedTree.Status}: {repairedTree.Details}");
+        Equal("manually repaired missing victim\n", Encoding.UTF8.GetString(repairedTree.Conflict.Working.Content));
+        var repairedResult = await Svn.ResolveConflictAsync(svn, config, local,
+            Path.Combine("tree conflict", "missing victim.txt"), "working", repairedTree.Conflict.Fingerprint).ConfigureAwait(false);
+        True(repairedResult.Status == "Ready", $"manual tree-conflict acknowledgement returned {repairedResult.Status}: {repairedResult.Details}");
+        await ResolveAsync(Path.Combine("tree conflict", "tracked.txt"), "working", snapshot =>
+        {
+            True(snapshot.HasTreeConflict, "tree conflict was not inspected");
+            SequenceEqual(new[] { "working" }, snapshot.AvailableAccepts);
+        }).ConfigureAwait(false);
+
+        Equal("base text\n", await File.ReadAllTextAsync(Path.Combine(local, "text base.txt")).ConfigureAwait(false));
+        Equal("mine text\n", await File.ReadAllTextAsync(Path.Combine(local, "text mine.txt")).ConfigureAwait(false));
+        Equal("theirs text\n", await File.ReadAllTextAsync(Path.Combine(local, "text theirs.txt")).ConfigureAwait(false));
+        Equal("theirs mixed text\n", await File.ReadAllTextAsync(Path.Combine(local, "mixed conflict.txt")).ConfigureAwait(false));
+        Equal("theirs", (await RunCaptureAsync(svn, "propget", "--strict", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", propertyName, Path.Combine(local, "property only.txt") + "@").ConfigureAwait(false)).StandardOutput);
+        Equal("theirs", (await RunCaptureAsync(svn, "propget", "--strict", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", propertyName, Path.Combine(local, "mixed conflict.txt") + "@").ConfigureAwait(false)).StandardOutput);
+        Equal("mine", (await RunCaptureAsync(svn, "propget", "--strict", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", propertyName, Path.Combine(local, "directory conflict") + "@").ConfigureAwait(false)).StandardOutput);
+        Equal("mine", (await RunCaptureAsync(svn, "propget", "--strict", "--non-interactive", "--no-auth-cache", "--config-dir", config,
+            "--", propertyName, local + "@").ConfigureAwait(false)).StandardOutput);
+        Equal("mine tree text\n", await File.ReadAllTextAsync(Path.Combine(local, "tree conflict", "tracked.txt")).ConfigureAwait(false));
+        Equal(unversionedContents, await File.ReadAllTextAsync(unversionedPath).ConfigureAwait(false));
+
+        var finalStatus = await Svn.GetStatusAsync(svn, config, local).ConfigureAwait(false);
+        Equal("Ready", finalStatus.Status);
+        True(!finalStatus.Entries.Any(entry => entry.Item == "conflicted" || entry.Properties == "conflicted" || entry.IsTreeConflicted),
+            "conflict resolution left one of the selected conflicts unresolved");
+        True(finalStatus.Entries.Any(entry => entry.Item == "unversioned" && entry.Path == Path.Combine("tree conflict", "unversioned local.txt")),
+            "conflict resolution changed the unrelated unversioned file's status");
     }
 
     private static async Task RunWorkingCopyActionIntegrationAsync(

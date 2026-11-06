@@ -1305,4 +1305,70 @@ Review the refreshed status before retrying.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.UnavailableNotice" xml:space="preserve">A local content diff is unavailable for this path. Review its status before continuing.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.DirectoryNotice" xml:space="preserve">This is a directory. Select Properties to inspect its local property changes.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.BinaryNotice" xml:space="preserve">Binary file contents differ; a text diff is unavailable.</x:String>
+
+  <x:String x:Key="Text.SVN.WorkingCopy.ConflictInspectEligibility" xml:space="preserve">Select exactly one path with a text, property, or tree conflict to inspect it.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Title" xml:space="preserve">Inspect and resolve conflict</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Inspect" xml:space="preserve">Inspect and resolve conflict…</x:String>
+  <x:String x:Key="Text.SVN.Conflict.CopyPath" xml:space="preserve">Copy path</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Inspection" xml:space="preserve">Conflict inspection</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Loading" xml:space="preserve">Loading conflict details…</x:String>
+  <x:String x:Key="Text.SVN.Conflict.LoadingComparison" xml:space="preserve">Comparing the selected snapshots…</x:String>
+  <x:String x:Key="Text.SVN.Conflict.InspectFailed" xml:space="preserve">Could not inspect the conflict at “{0}”.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.NoComparison" xml:space="preserve">Conflict details are unavailable until inspection succeeds.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.InspectionCancelled" xml:space="preserve">Conflict inspection was canceled.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ComparisonCancelled" xml:space="preserve">Snapshot comparison was canceled.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ComparisonFailed" xml:space="preserve">The selected snapshots could not be compared.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.BinaryComparison" xml:space="preserve">One or both snapshots are binary; a text comparison is unavailable.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Kind.Text" xml:space="preserve">Text conflict</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Kind.Properties" xml:space="preserve">Property conflict</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Kind.Tree" xml:space="preserve">Tree conflict</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Tab.Text" xml:space="preserve">Text</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Tab.Properties" xml:space="preserve">Properties</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Tab.Tree" xml:space="preserve">Tree details</x:String>
+  <x:String x:Key="Text.SVN.Conflict.CompareFrom" xml:space="preserve">Compare from</x:String>
+  <x:String x:Key="Text.SVN.Conflict.CompareTo" xml:space="preserve">with</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Version.Base" xml:space="preserve">Base</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Version.LocalBeforeOperation" xml:space="preserve">Local before operation</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Version.Incoming" xml:space="preserve">Incoming</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Version.Working" xml:space="preserve">Working file</x:String>
+  <x:String x:Key="Text.SVN.Conflict.VersionUnavailable" xml:space="preserve">One or both selected snapshots are unavailable.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.UnavailableVersions" xml:space="preserve">Unavailable conflict snapshots</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Version.NoDetails" xml:space="preserve">This artifact was not available to inspect.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.VersionUnavailableDetail" xml:space="preserve">{0}: {1}</x:String>
+  <x:String x:Key="Text.SVN.Conflict.PropertyReportLabel" xml:space="preserve">Conflict report (.prej)</x:String>
+  <x:String x:Key="Text.SVN.Conflict.PropertyReportUnavailable" xml:space="preserve">The conflict report is unavailable.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.PropertyReportBinary" xml:space="preserve">The conflict report is binary and cannot be displayed as text.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.PropertyReportEmpty" xml:space="preserve">The conflict report is empty.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.PropertyDiffLabel" xml:space="preserve">Current working-copy property diff</x:String>
+  <x:String x:Key="Text.SVN.Conflict.PropertyDiffEmpty" xml:space="preserve">No current property diff is available.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.PropertyDiffUnavailable" xml:space="preserve">The current property diff is unavailable: {0}</x:String>
+  <x:String x:Key="Text.SVN.Conflict.TreeDetailsLabel" xml:space="preserve">Subversion tree-conflict details</x:String>
+  <x:String x:Key="Text.SVN.Conflict.TreeManualWarning" xml:space="preserve">Review the operation, reason, incoming action, node kinds, and paths. Make the required working-copy structure changes yourself before marking this conflict resolved.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.TreeManualAck" xml:space="preserve">I completed the required manual tree changes</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ResolutionLabel" xml:space="preserve">Resolution</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Resolve" xml:space="preserve">Resolve</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Resolution.Working" xml:space="preserve">Keep current working state</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Resolution.Base" xml:space="preserve">Use base version</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Resolution.Local" xml:space="preserve">Use local version</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Resolution.Incoming" xml:space="preserve">Use incoming version</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Resolution.WorkingDetails" xml:space="preserve">Keep the current working state and mark all supported conflicts on this path resolved. This clears conflict bookkeeping; it does not check your edits.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Resolution.ReplacementDetails" xml:space="preserve">Apply this version to all supported conflicts on this path. A replacement can change both file content and property values.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ChooseResolution" xml:space="preserve">Choose a resolution. The action applies to all supported conflicts on this path.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ResolutionPlaceholder" xml:space="preserve">Choose a resolution…</x:String>
+  <x:String x:Key="Text.SVN.Conflict.NoResolution" xml:space="preserve">No safe automatic resolution is available for this conflict. Inspect the details and resolve it manually with Subversion tools.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.NoSafeResolutionForSnapshot" xml:space="preserve">No safe resolution is available for this conflict snapshot. Review the conflict details and any unavailable version details in the Text view. Use another Subversion tool to resolve it, then reopen this inspection.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ConfirmTitle" xml:space="preserve">Resolve conflict</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ConfirmWorking" xml:space="preserve">Mark all supported conflicts on “{0}” as resolved using the current working state? Conflict types: {1}. This only clears conflict bookkeeping; it does not validate your edits.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.TreeWorkingWarning" xml:space="preserve">For the tree conflict, confirm only after you have manually repaired the working-copy structure.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ConfirmReplacement" xml:space="preserve">Apply “{1}” to all supported conflicts on “{0}”? Conflict types: {2}.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ReplacementWarning" xml:space="preserve">This may replace local file content and property values on the selected path.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Reload" xml:space="preserve">Reload details</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ReloadAfterStale" xml:space="preserve">The working copy changed after this inspection. Reload the conflict and review the new snapshot before resolving.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ReloadAfterFailure" xml:space="preserve">The action failed or may have changed the working copy. Review the refreshed status, then reload these details before another attempt.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Resolving" xml:space="preserve">Resolving this path…</x:String>
+  <x:String x:Key="Text.SVN.Conflict.CancelOperation" xml:space="preserve">Cancel operation</x:String>
+  <x:String x:Key="Text.SVN.Conflict.Resolved" xml:space="preserve">Resolved conflicts at “{0}”.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ResolveFailed" xml:space="preserve">Could not resolve conflicts at “{0}”. Review the refreshed status.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.ResolvedNotice" xml:space="preserve">Resolved conflicts at “{0}”.</x:String>
+  <x:String x:Key="Text.SVN.Conflict.TextTruncated" xml:space="preserve">Content was truncated after 256 KiB.</x:String>
 </ResourceDictionary>

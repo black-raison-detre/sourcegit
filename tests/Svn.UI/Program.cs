@@ -22,7 +22,7 @@ using SourceGit;
 using SourceGit.ViewModels;
 using SvnOperationDialog = SourceGit.Views.SvnOperationDialog;
 
-internal static class Program
+internal static partial class Program
 {
     private static int s_checks;
 
@@ -45,6 +45,8 @@ internal static class Program
             var workingCopy = Path.Combine(temporary, "工作 copy@fixture ");
             var config = Path.Combine(temporary, "svn-config");
             Directory.CreateDirectory(config);
+            if (args.Contains("--conflicts-only", StringComparer.Ordinal))
+                return await RunConflictsOnly(temporary, config);
             var localWorkingCopy = await CreateLocalWorkingCopyFixture(temporary, config);
             if (args.Contains("--local-only", StringComparer.Ordinal))
                 return await RunLocalOnly(temporary, config, localWorkingCopy);
@@ -67,7 +69,7 @@ internal static class Program
 
             Console.WriteLine("Fixture ready; starting headless application.");
             var session = HeadlessUnitTestSession.StartNew(typeof(Program));
-            using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
             try
             {
                 await session.Dispatch<bool>(async () =>
@@ -606,7 +608,7 @@ internal static class Program
     private static async Task<int> RunLocalOnly(string temporary, string config, string workingCopy)
     {
         var session = HeadlessUnitTestSession.StartNew(typeof(Program));
-        using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         try
         {
             var screenshotDirectory = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_ARTIFACTS") ??
@@ -1038,6 +1040,8 @@ internal static class Program
             workingCopy, Path.Combine(Path.GetDirectoryName(workingCopy), "local-status-repository"),
             Path.Combine(Path.GetDirectoryName(workingCopy), "local-status-remote-copy"),
             Preferences.Instance.SvnConfigDirectory, screenshotDirectory, selectedActions);
+        await VerifyConflictUi(window, Path.GetDirectoryName(workingCopy),
+            Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
     }
 
     private static async Task VerifyCoreWorkingCopyOperations(Window window, TabControl repositoryTabs,

@@ -8,7 +8,8 @@ dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj
 
 The project has no package dependencies. It compiles the production `Svn.cs`,
 `Svn.Connection.cs`, `Svn.History.cs`, `Svn.ChangedPaths.cs`,
-`Svn.FileDiff.cs`, `Svn.Status.cs`, `Svn.Actions.cs`, and `Svn.Undo.cs` files directly and uses its own apphost as a fake SVN CLI, so
+`Svn.FileDiff.cs`, `Svn.Status.cs`, `Svn.Actions.cs`, `Svn.Undo.cs`, and
+`Svn.Conflicts.cs` files directly and uses its own apphost as a fake SVN CLI, so
 the focused checks do not need Subversion installed.
 
 The fake-client checks cover working-copy root discovery and Git precedence,
@@ -41,7 +42,10 @@ missing removals, and rejection of stale, property-edited, traversing, symlinked
 and nested-working-copy selections. Undo checks cover plain added/deleted rows,
 automatic-property metadata on additions, missing deleted paths, safe revert
 arguments, and preservation of retained bytes when a failed or cancelled fake
-revert first recreates the target. Recovery checks verify that unexpected
+revert first recreates the target. Conflict checks cover XML parsing, unsafe
+artifact paths, bounded snapshots, stale fingerprints, argv framing, no-op
+postcondition detection, missing tree victims, and cancellation with child
+termination. Recovery checks verify that unexpected
 temporary data is retained with an error, and that a post-revert symlink leaves
 the original bytes and recovery manifest available with their paths reported for
 failure and cancellation. Symlink-specific checks run where the test filesystem
@@ -90,8 +94,12 @@ output as bounded bytes and disable keyword expansion; SVN still applies
 client's EOL form rather than the repository's stored line-ending bytes. No
 user Subversion cache or credentials are read or modified.
 
-Integration mode also creates a separate temporary `file://` repository and
-working copy to exercise actual local adds and deletes. It checks Unicode and
+Integration mode also creates separate temporary `file://` repositories and
+working copies to exercise actual local adds, deletes, and conflict resolution.
+Conflict fixtures cover text-only BASE/MINE/THEIRS choices, property-only and
+combined choices, a directory property conflict whose conflicted child remains
+untouched after depth-empty resolution, a root property conflict, a tree
+conflict, and preservation of an unrelated unversioned file. Action checks cover Unicode and
 `@` paths, configured auto-properties, depth-empty directory adds, preservation
 of modified and nested file bytes, removal of missing files and directories, and
 directory-removal refusal when a missing child has modified properties or is a

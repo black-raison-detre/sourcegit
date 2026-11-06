@@ -11,6 +11,8 @@ namespace SourceGit.ViewModels
         public IReadOnlyList<SvnWorkingCopyEntry> SelectedEntries => _selectedEntries;
         public string SelectionSummary => App.Text("SVN.WorkingCopy.SelectedCount", _selectedEntries.Count);
         public bool CanSelectedActions => CanRefresh && _status == "Ready" && _selectedEntries.Count > 0;
+        public bool CanInspectConflict => CanRefresh && _status == "Ready" && _selectedEntries.Count == 1 &&
+            CanInspectConflictEntry(_selectedEntries[0]);
         public bool CanRevert => CanApplySelection(Native.Svn.CanRevert) && HasSafeOperationSelection() &&
             (_selectedEntries.Count == 1 || _selectedEntries.All(entry => entry.Path != "."));
         public bool CanCommit => CanApplySelection(Native.Svn.CanCommit) && HasSafeOperationSelection();
@@ -34,6 +36,9 @@ namespace SourceGit.ViewModels
         public IReadOnlyList<SvnWorkingCopyEntry> GetCommitCandidates() =>
             _status == "Ready" ? Entries.Where(entry => Native.Svn.CanCommit(entry.Entry) &&
                 !Native.Svn.HasUnsafeOperationAncestor(entry.Entry, _operationStatusEntries)).ToArray() : [];
+
+        public bool CanInspectConflictEntry(SvnWorkingCopyEntry entry) => CanRefresh && _status == "Ready" &&
+            entry != null && Entries.Contains(entry) && Native.Svn.CanInspectConflict(entry.Entry);
 
         private bool HasSafeOperationSelection() => _selectedEntries.All(entry =>
             !Native.Svn.HasUnsafeOperationAncestor(entry.Entry, _operationStatusEntries));

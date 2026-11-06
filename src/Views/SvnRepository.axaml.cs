@@ -161,6 +161,19 @@ namespace SourceGit.Views
                     await clipboard.SetTextAsync(string.Join(Environment.NewLine, vm.SelectedEntries.Select(entry => entry.Path)));
             };
             menu.Items.Add(copy);
+            var inspectConflict = new MenuItem
+            {
+                Name = "InspectSvnConflict",
+                Header = App.Text("SVN.Conflict.Inspect"),
+                IsEnabled = vm.CanInspectConflict,
+            };
+            inspectConflict.Click += async (_, _) =>
+            {
+                if (vm.SelectedEntries.Count == 1)
+                    await SvnConflictDialog.ShowAsync(vm, vm.SelectedEntries[0], TopLevel.GetTopLevel(this) as Window);
+            };
+            ExplainDisabledAction(inspectConflict, "SVN.WorkingCopy.ConflictInspectEligibility");
+            menu.Items.Add(inspectConflict);
             menu.Items.Add(new MenuItem { Header = "-" });
             var add = new MenuItem { Header = App.Text("SVN.WorkingCopy.Add"), IsEnabled = vm.CanAdd };
             add.Click += OnAddWorkingCopy;

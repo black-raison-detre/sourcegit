@@ -19,5 +19,6 @@
     <Compile Include="../../src/Native/Svn.Actions.cs" Link="Production/Svn.Actions.cs" />
     <Compile Include="../../src/Native/Svn.Undo.cs" Link="Production/Svn.Undo.cs" />
     <Compile Include="../../src/Native/Svn.Operations.cs" Link="Production/Svn.Operations.cs" />
+    <Compile Include="../../src/Native/Svn.Conflicts.cs" Link="Production/Svn.Conflicts.cs" />
   </ItemGroup>
 </Project>

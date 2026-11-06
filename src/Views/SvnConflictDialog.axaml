@@ -1,0 +1,168 @@
+<v:ChromelessWindow xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:vm="using:SourceGit.ViewModels"
+                    xmlns:v="using:SourceGit.Views"
+                    xmlns:c="using:SourceGit.Converters"
+                    x:Class="SourceGit.Views.SvnConflictDialog"
+                    x:DataType="vm:SvnConflictDialogViewModel"
+                    x:Name="ThisControl"
+                    Icon="/App.ico"
+                    Width="760" MinWidth="620" Height="480" MinHeight="480"
+                    CanResize="True" CloseOnESC="True"
+                    WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Grid Grid.Row="0" Height="28" IsVisible="{Binding !#ThisControl.UseSystemWindowFrame}">
+      <Border Background="{DynamicResource Brush.TitleBar}" BorderThickness="0,0,0,1"
+              BorderBrush="{DynamicResource Brush.Border0}" PointerPressed="BeginMoveWindow"/>
+      <TextBlock x:Name="DialogTitle" Classes="bold" HorizontalAlignment="Center"
+                 VerticalAlignment="Center" IsHitTestVisible="False"/>
+      <v:CaptionButtons HorizontalAlignment="Right" IsCloseButtonOnly="True"
+                        IsVisible="{OnPlatform True, macOS=False}"/>
+    </Grid>
+    <Grid Grid.Row="1" Margin="16" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+      <StackPanel Grid.Row="0" Spacing="3">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+          <TextBlock x:Name="ConflictPath" Text="{Binding Path}" TextWrapping="Wrap" MaxLines="2" MaxHeight="40"
+                     TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}"/>
+          <Button Grid.Column="1" Classes="flat" Height="24" Padding="8,0"
+                  Content="{DynamicResource Text.SVN.Conflict.CopyPath}" Click="OnCopyPath"
+                  AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.CopyPath}"/>
+        </Grid>
+        <TextBlock Text="{Binding KindsText}" Foreground="{DynamicResource Brush.FG2}" TextWrapping="Wrap"/>
+        <TextBlock x:Name="ConflictDescription" Text="{Binding Description}" TextWrapping="Wrap"
+                   MaxLines="2" MaxHeight="40" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Description}"
+                   IsVisible="{Binding Description, Converter={x:Static c:StringConverters.IsNotNullOrWhitespace}}"/>
+        <TextBlock Text="{DynamicResource Text.SVN.Conflict.Loading}" IsVisible="{Binding IsLoading}"
+                   Foreground="{DynamicResource Brush.FG2}"/>
+        <TextBlock Text="{DynamicResource Text.SVN.Conflict.Resolving}" IsVisible="{Binding IsResolving}"
+                   Foreground="{DynamicResource Brush.FG2}"/>
+        <StackPanel Spacing="4" IsVisible="{Binding HasError}">
+          <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap"/>
+          <Expander Header="{DynamicResource Text.SVN.Connection.Details}"
+                    IsVisible="{Binding ErrorDetails, Converter={x:Static c:StringConverters.IsNotNullOrWhitespace}}">
+            <TextBox x:Name="ConflictErrorDetails" Text="{Binding ErrorDetails, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                     MaxHeight="90" TextWrapping="Wrap"/>
+          </Expander>
+        </StackPanel>
+        <TextBlock Text="{Binding NoticeMessage}" TextWrapping="Wrap" IsVisible="{Binding NeedsReload}"/>
+        <TextBlock Text="{Binding NoticeMessage}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}"
+                   IsVisible="{Binding NeedsReload, Converter={x:Static BoolConverters.Not}}"/>
+      </StackPanel>
+
+      <TabControl x:Name="ConflictTabs" Grid.Row="1" MinHeight="90"
+                  IsVisible="{Binding KindsText, Converter={x:Static c:StringConverters.IsNotNullOrWhitespace}}"
+                  AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.Inspection}">
+        <TabItem x:Name="TextConflictTab" Header="{DynamicResource Text.SVN.Conflict.Tab.Text}" IsVisible="{Binding HasTextConflict}">
+          <Grid RowDefinitions="Auto,Auto,*" RowSpacing="6" Margin="4,8,4,4">
+            <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8">
+              <TextBlock Text="{DynamicResource Text.SVN.Conflict.CompareFrom}" VerticalAlignment="Center"/>
+              <ComboBox x:Name="ConflictVersionFrom" Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding FromVersions}"
+                        SelectedItem="{Binding SelectedFromVersion}"
+                        AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.CompareFrom}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate DataType="vm:SvnConflictVersionOption"><TextBlock Text="{Binding Label}" ToolTip.Tip="{Binding Details}"/></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock Grid.Column="2" Text="{DynamicResource Text.SVN.Conflict.CompareTo}" VerticalAlignment="Center"/>
+              <ComboBox x:Name="ConflictVersionTo" Grid.Column="3" HorizontalAlignment="Stretch" ItemsSource="{Binding ToVersions}"
+                        SelectedItem="{Binding SelectedToVersion}"
+                        AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.CompareTo}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate DataType="vm:SvnConflictVersionOption"><TextBlock Text="{Binding Label}" ToolTip.Tip="{Binding Details}"/></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+            <Expander Grid.Row="1" Header="{DynamicResource Text.SVN.Conflict.UnavailableVersions}"
+                      IsVisible="{Binding HasUnavailableVersions}">
+              <TextBox x:Name="UnavailableVersionsDetails" Text="{Binding UnavailableVersionsText, Mode=OneWay}"
+                       IsReadOnly="True" AcceptsReturn="True" MaxHeight="80" TextWrapping="Wrap"
+                       AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.UnavailableVersions}"/>
+            </Expander>
+            <Border Grid.Row="2" BorderThickness="1" BorderBrush="{DynamicResource Brush.Border2}"
+                    Background="{DynamicResource Brush.Contents}">
+              <Grid>
+                <v:TextDiffView DataContext="{Binding DiffContent}"/>
+                <ScrollViewer MaxHeight="180" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                              IsVisible="{Binding CompareNotice, Converter={x:Static c:StringConverters.IsNotNullOrWhitespace}}">
+                  <TextBlock Text="{Binding CompareNotice}" TextWrapping="Wrap" Margin="12"
+                             Foreground="{DynamicResource Brush.FG2}" VerticalAlignment="Center"/>
+                </ScrollViewer>
+              </Grid>
+            </Border>
+          </Grid>
+        </TabItem>
+        <TabItem x:Name="PropertyConflictTab" Header="{DynamicResource Text.SVN.Conflict.Tab.Properties}" IsVisible="{Binding HasPropertyConflict}">
+          <Grid RowDefinitions="*" ClipToBounds="True">
+            <ScrollViewer Grid.Row="0" Margin="4,8,4,4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="8">
+                <TextBlock x:Name="PropertyReportHeading" Text="{DynamicResource Text.SVN.Conflict.PropertyReportLabel}" FontWeight="Bold"/>
+                <TextBox x:Name="PropertyConflictReport" Text="{Binding PropertyRejectText, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                         MinHeight="56" MaxHeight="150" TextWrapping="Wrap" VerticalContentAlignment="Top"
+                         AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.PropertyReportLabel}"/>
+                <TextBlock x:Name="PropertyDiffHeading" Text="{DynamicResource Text.SVN.Conflict.PropertyDiffLabel}" FontWeight="Bold"/>
+                <TextBox x:Name="PropertyConflictDiff" Text="{Binding PropertyDiffText, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                         MinHeight="56" MaxHeight="180" TextWrapping="Wrap" VerticalContentAlignment="Top"
+                         AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.PropertyDiffLabel}"/>
+              </StackPanel>
+            </ScrollViewer>
+          </Grid>
+        </TabItem>
+        <TabItem x:Name="TreeConflictTab" Header="{DynamicResource Text.SVN.Conflict.Tab.Tree}" IsVisible="{Binding HasTreeConflict}">
+          <Grid RowDefinitions="*" ClipToBounds="True">
+            <ScrollViewer Grid.Row="0" Margin="4,8,4,4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="8">
+                <TextBlock Text="{DynamicResource Text.SVN.Conflict.TreeDetailsLabel}" FontWeight="Bold"/>
+                <TextBox x:Name="TreeConflictDetails" Text="{Binding TreeDetails, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                         MinHeight="80" MaxHeight="240" TextWrapping="Wrap" VerticalContentAlignment="Top"
+                         AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.TreeDetailsLabel}"/>
+                <TextBlock Text="{DynamicResource Text.SVN.Conflict.TreeManualWarning}" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.FG2}"/>
+              </StackPanel>
+            </ScrollViewer>
+          </Grid>
+        </TabItem>
+      </TabControl>
+
+      <StackPanel Grid.Row="2" Spacing="5">
+        <TextBlock Text="{DynamicResource Text.SVN.Conflict.ResolutionLabel}" FontWeight="Bold"/>
+        <Grid>
+          <ComboBox x:Name="ConflictResolution" HorizontalAlignment="Stretch" ItemsSource="{Binding ResolutionChoices}"
+                    SelectedItem="{Binding SelectedResolution}"
+                    IsEnabled="{Binding CanChooseResolution}"
+                    AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.ResolutionLabel}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate DataType="vm:SvnConflictResolutionOption"><TextBlock Text="{Binding Label}" ToolTip.Tip="{Binding Description}"/></DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBlock x:Name="ResolutionPlaceholderText" Text="{DynamicResource Text.SVN.Conflict.ResolutionPlaceholder}"
+                     IsVisible="{Binding HasSelectedResolution, Converter={x:Static BoolConverters.Not}}"
+                     IsHitTestVisible="False" Margin="8,0" VerticalAlignment="Center"
+                     Foreground="{DynamicResource Brush.FG2}"/>
+        </Grid>
+        <TextBlock Text="{Binding ResolutionHint}" TextWrapping="Wrap"
+                   Foreground="{DynamicResource Brush.FG2}"/>
+        <CheckBox x:Name="ManualTreeChangesConfirmed" Content="{DynamicResource Text.SVN.Conflict.TreeManualAck}"
+                  IsChecked="{Binding ManualTreeChangesConfirmed}"
+                  IsVisible="{Binding HasTreeConflict}"
+                  IsEnabled="{Binding CanChooseResolution}"
+                  AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.TreeManualAck}"/>
+      </StackPanel>
+    </Grid>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="16,0,16,16">
+      <Button x:Name="ReloadConflictButton" Classes="flat" Height="30" MinWidth="100" Padding="12,0"
+              HorizontalAlignment="Left" Content="{DynamicResource Text.SVN.Conflict.Reload}"
+              IsEnabled="{Binding CanReload}" Click="OnReload"
+              AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.Reload}"/>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <Button x:Name="CancelButton" Classes="flat" Height="30" MinWidth="80" Padding="12,0"
+                Content="{Binding CancelButtonContent}" Click="OnCancel"/>
+        <Button x:Name="ResolveConflictButton" Classes="flat primary" Height="30" MinWidth="90" Padding="12,0"
+                Content="{DynamicResource Text.SVN.Conflict.Resolve}" IsEnabled="{Binding CanResolve}"
+                Click="OnResolve" AutomationProperties.Name="{DynamicResource Text.SVN.Conflict.Resolve}"/>
+      </StackPanel>
+    </Grid>
+  </Grid>
+</v:ChromelessWindow>

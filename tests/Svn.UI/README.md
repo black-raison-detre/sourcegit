@@ -14,6 +14,12 @@ fixture, use:
 dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --local-only
 ```
 
+To run only conflict inspection and resolution checks and their rendered dialogs:
+
+```sh
+dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --conflicts-only
+```
+
 The harness creates a disposable local repository with 104 revisions and a
 working-copy path containing spaces (including a trailing space), Unicode, and `@`.
 A second `file://` repository supplies local-only status and diff cases, including
@@ -44,6 +50,15 @@ keep-local removal of modified and missing files, non-recursive directory
 addition, stale-selection errors with a refreshed status list, Undo of
 additions/deletions/directories, and exclusion of
 conflicts, copies, replacements, and ordinary edits from scheduling Undo.
+An independent conflict fixture exercises the shared action menu and the conflict
+dialog against real text, property, combined text/property, and tree conflicts.
+It checks cancellation, explicit replacement confirmation, stale-snapshot
+rejection and reload, preservation of manually repaired content and property
+values, missing-artifact availability, and the acknowledgment required for a
+manually repaired tree conflict.
+Resolution must refresh status without resolving another path or changing
+unversioned files. Text comparisons, property reports, tree details, and stale
+recovery are rendered in both themes at a compact window size.
 A fake SVN client delays local diffs to check cancellation, retry, stale-result
 suppression, and local status access while remote history requests credentials.
 The harness also checks the snapshot parser against submodule-looking and Git
@@ -86,5 +101,10 @@ ordinary local edits. The **Selected actions** menu applies Add, Remove, Undo,
 Revert, and Commit to the selected status rows; confirmation screens list the full
 selected scope. The toolbar updates to HEAD or a chosen revision and opens the
 commit form for path selection. Choose **Load more** for older revisions, or
-**Refresh** (F5) for the active tab. Conflict resolution and SVN over SSH are
-outside this increment.
+**Refresh** (F5) for the active tab. For one conflicted row, choose
+**Inspect and resolve conflict…**. Compare available file versions or inspect
+the property report and tree details, then explicitly choose a resolution.
+The resolution applies to all conflicts on that path. Repair tree conflicts
+manually before acknowledging them. After editing a file or its properties
+outside the dialog, reload and review the snapshot before marking it resolved.
+SVN over SSH remains outside this increment.
