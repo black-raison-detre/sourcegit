@@ -26,6 +26,13 @@ To run only Rename, Move, Copy, and their Commit workflow with rendered dialogs:
 dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --path-operations-only
 ```
 
+To run only SVN property editing, exact-name Ignore, stale-snapshot recovery,
+and the explicit Commit workflow:
+
+```sh
+dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --properties-only
+```
+
 The file-operation fixture chooses clean tracked sources outside the changed-only
 grid, verifies exact destination previews, rejects invalid names and folder
 self-copies, and checks that moves retain local text and property edits. It
@@ -96,6 +103,20 @@ screens are captured in both themes. Remove/Undo results and action errors are
 also captured in both themes. Set `SOURCEGIT_SVN_UI_ARTIFACTS`
 to choose another artifact directory.
 
+The property and Ignore fixture starts with a tracked, property-free working-copy
+root and clean files, plus binary-property and (where supported) `svn:special`
+examples. It checks empty-property versus deletion behavior, immutable existing
+names, multiline Unicode/whitespace/`@` values and trailing newlines, read-only
+binary properties, symlink and `svn:special` refusal, target-path reload safety,
+stale-snapshot draft retention, discard confirmation, local property diffs, and
+Commit at repository HEAD. Ignore checks literal `*` and `?` names on Unix, bracket
+names across platforms, and a Unix literal backslash. It keeps neighboring glob
+matches unignored, preserves prior `svn:ignore` lines and other root properties,
+and leaves selected files untouched. Multi-parent and
+tracked selections are refused by the Ignore menu. Compact dialogs, both themes,
+footer visibility, and the stale error state are rendered into the configured
+artifact directory.
+
 Headless checks do not prove native macOS window integration, clipboard
 behavior, native credential storage, or packaged-app behavior. Authenticated
 SVN backend integration is covered separately by `tests/Svn`.
@@ -124,8 +145,12 @@ outside the dialog, reload and review the snapshot before marking it resolved.
 SVN over SSH remains outside this increment.
 
 Use **File operations…** in the Working copy tab to choose a clean file or folder,
-or choose **Rename…**, **Move…**, or **Copy…** from a selected changed row's action
-menu. Paths are relative to the working-copy root. Rename takes a new name;
+or choose **Rename…**, **Move…**, **Copy…**, or **Properties…** from its menu. The
+selected row's action menu also offers applicable operations. Properties shows the
+working-copy root when nothing is selected and the selected tracked path when one
+is eligible. Text property values can be added, edited, or deleted locally; they
+remain pending until committed. Paths are relative to the working-copy root.
+Rename takes a new name;
 Move and Copy take the complete new path, including its filename or folder name.
 The destination must be unused and its parent already versioned. These operations
 retain SVN history and remain pending until committed. Select both ends of a
@@ -134,3 +159,9 @@ sources must be handled separately; directory operations do not silently include
 unversioned or ignored children. Mixed-revision source trees are refused in this
 increment; update the source tree to a consistent revision first. Case-only
 renames that collide with the existing path are also refused.
+
+Select one or more unversioned files or folders with a common parent and choose
+**Ignore** from **Selected actions** to append exact escaped basenames to that
+parent's `svn:ignore` property. Ignoring keeps the local files and folder contents
+in place. Existing ignore patterns and other properties are retained. Tracked
+paths and selections from different parents cannot be ignored together.

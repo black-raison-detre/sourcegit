@@ -200,6 +200,32 @@ namespace SourceGit.Views
                 App.Text("SVN.WorkingCopy.RevertTitle"), App.Text("SVN.WorkingCopy.RevertTitle"), message, TopLevel.GetTopLevel(this) as Window));
             ExplainDisabledAction(revert, "SVN.WorkingCopy.RevertEligibility");
             menu.Items.Add(revert);
+            menu.Items.Add(new MenuItem { Header = "-" });
+            var selectedProperty = vm.SelectedEntries.Count == 1 ? vm.SelectedEntries[0] : null;
+            var properties = new MenuItem
+            {
+                Name = "PropertiesSvnPath",
+                Header = App.Text("SVN.Properties.Menu"),
+                IsEnabled = selectedProperty != null && vm.CanEditProperties(selectedProperty),
+            };
+            ExplainDisabledAction(properties, "SVN.WorkingCopy.PropertiesEligibility");
+            properties.Click += async (_, _) =>
+            {
+                if (selectedProperty != null)
+                    await SvnPropertiesDialog.ShowAsync(vm, selectedProperty.Path, TopLevel.GetTopLevel(this) as Window);
+            };
+            menu.Items.Add(properties);
+
+            var ignore = new MenuItem
+            {
+                Name = "IgnoreSvnPaths",
+                Header = App.Text("SVN.Ignore.Menu"),
+                IsEnabled = vm.CanIgnoreSelectedPaths,
+            };
+            ExplainDisabledAction(ignore, "SVN.WorkingCopy.IgnoreEligibility");
+            ignore.Click += async (_, _) => await SvnIgnoreDialog.ShowAsync(vm,
+                vm.SelectedEntries.Select(entry => entry.Path).ToArray(), TopLevel.GetTopLevel(this) as Window);
+            menu.Items.Add(ignore);
             menu.Open(target);
         }
 
@@ -281,17 +307,50 @@ namespace SourceGit.Views
             e.Handled = true;
         }
 
-        private async void OnFileOperations(object sender, RoutedEventArgs e)
+        private void OnFileOperations(object sender, RoutedEventArgs e)
         {
             if (DataContext is ViewModels.SvnRepository repo && repo.WorkingCopy.CanFileOperations)
             {
                 var workingCopy = repo.WorkingCopy;
-                var source = workingCopy.SelectedEntries.Count == 1 && workingCopy.CanMoveOrCopy(workingCopy.SelectedEntries[0])
-                    ? workingCopy.SelectedEntries[0].Path : null;
-                await SvnPathOperationDialog.ShowAsync(workingCopy, "rename", source, TopLevel.GetTopLevel(this) as Window);
+                var menu = new ContextMenu();
+                menu.Items.Add(CreateFilePathOperationItem("FileOperationsRename", "Rename", "rename", workingCopy));
+                menu.Items.Add(CreateFilePathOperationItem("FileOperationsMove", "Move", "move", workingCopy));
+                menu.Items.Add(CreateFilePathOperationItem("FileOperationsCopy", "Copy", "copy", workingCopy));
+                menu.Items.Add(new MenuItem { Header = "-" });
+
+                var selected = workingCopy.SelectedEntries.Count == 1 && workingCopy.CanEditProperties(workingCopy.SelectedEntries[0])
+                    ? workingCopy.SelectedEntries[0] : null;
+                var path = selected?.Path ?? ".";
+                var properties = new MenuItem
+                {
+                    Name = "FileOperationsProperties",
+                    Header = App.Text("SVN.Properties.Menu"),
+                    IsEnabled = workingCopy.CanEditPropertiesPath(path),
+                };
+                ExplainDisabledAction(properties, "SVN.WorkingCopy.PropertiesEligibility");
+                properties.Click += async (_, _) => await SvnPropertiesDialog.ShowAsync(workingCopy,
+                    path, TopLevel.GetTopLevel(this) as Window);
+                menu.Items.Add(properties);
+                menu.Open(WorkingCopyFileOperations);
             }
 
             e.Handled = true;
+        }
+
+        private MenuItem CreateFilePathOperationItem(string name, string headerKey, string operation,
+            ViewModels.SvnWorkingCopy workingCopy)
+        {
+            var entry = workingCopy.SelectedEntries.Count == 1 && workingCopy.CanMoveOrCopy(workingCopy.SelectedEntries[0])
+                ? workingCopy.SelectedEntries[0] : null;
+            var item = new MenuItem
+            {
+                Name = name,
+                Header = App.Text("SVN.PathOperation." + headerKey + "Menu"),
+                IsEnabled = workingCopy.CanFileOperations,
+            };
+            item.Click += async (_, _) => await SvnPathOperationDialog.ShowAsync(workingCopy,
+                operation, entry?.Path, TopLevel.GetTopLevel(this) as Window);
+            return item;
         }
 
         private async void OnAddWorkingCopy(object sender, RoutedEventArgs e)

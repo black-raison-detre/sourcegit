@@ -81,6 +81,13 @@ internal static partial class Program
         operations.Focus();
         window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
         window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Check(!window.OwnedWindows.OfType<SourceGit.Views.SvnPathOperationDialog>().Any(dialog => dialog.IsVisible),
+            "toolbar opens the File operations menu before opening a path-operation dialog");
+        window.KeyPressQwerty(PhysicalKey.Home, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Home, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
         var blank = await WaitForPathOperationDialog(window);
         Check(string.IsNullOrEmpty(FindNamedControl<TextBox>(blank, "SourcePath").Text) &&
             !FindNamedControl<Button>(blank, "PrimaryButton").IsEnabled,

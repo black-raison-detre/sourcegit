@@ -32,7 +32,8 @@
 
 ## Later increments
 
-- [ ] Add Ignore, editable Properties, and Changelists.
+- [x] Add Ignore and editable direct Properties, including exact-name ignore previews, protected and binary read-only values, stale-snapshot recovery, and commit-aware working-copy dialogs.
+- [ ] Add Changelists.
 - [ ] Add Cleanup and missing-file/rename repair workflows with explicit scope.
 - [ ] Add checkout and remote repository browsing as separate entry points from opening an existing working copy.
 - [ ] Support SVN over SSH with explicit key/agent integration.
@@ -59,8 +60,15 @@
 - [x] 501 full headless GUI/workflow checks, followed by 69 focused checks on the final production source. Coverage includes clean-source entry, selected-action keyboard navigation, Enter/Escape, move-pair Commit selection, switched-subtree exclusion, stale-source recovery, and literal Unix backslashes. Light/dark renders inspected at the minimum 540×480 dialog size, including visible failure summaries above the fixed footer.
 - [x] Release build and formatting verification on macOS arm64 with .NET 10.0.400 and SVN 1.14.5. Independent source review approved after correcting Windows path-separator validation; Windows runtime proof remains outstanding.
 
+## Ignore/Properties increment verification (2026-11-06)
+
+- [x] 100 portable backend regression checks, including whitespace-only property preservation and stale-token rejection, bounded XML/base64 reads, unsafe-path and binary-edit refusal, exact-name ignore escaping, cancellation, and protected temporary-file cleanup after preparation failure.
+- [x] Disposable `file://` property integration covers root/file/folder properties, exact Unicode and newline values, empty values versus deletion, stale external changes, and literal wildcard/backslash/`@` ignore names while preserving existing rules and unrelated properties/files. Authenticated local `svnserve` integration also passes.
+- [x] 87 focused Properties/Ignore headless checks and 590 full GUI/workflow checks, including clean-source/root entry, keyboard menus, draft/deletion confirmations, multiline input, stale recovery, status/property diffs, and explicit Commit with repository-HEAD verification. Compact Properties, Ignore, stale-error, and resulting working-copy renders inspected in both themes.
+- [x] Release build and formatting verification on macOS arm64 with .NET 10.0.400 and SVN 1.14.5. Independent source review approved after fixing whitespace-only XML parsing and temporary-file failure cleanup.
+
 ## Remaining validation
 
-- [ ] Exercise the native desktop interface in light/dark themes: folder opening, F5, keyboard navigation, clipboard copy, resizing, authentication, cancellation, conflict inspection/resolution, Rename/Move/Copy and their native file/folder pickers, and closing/restoring tabs. Include Windows path and case-only rename behavior. Headless checks already cover the core workflows and rendered layouts.
+- [ ] Exercise the native desktop interface in light/dark themes: folder opening, F5, keyboard navigation, clipboard copy, resizing, authentication, cancellation, conflict inspection/resolution, Rename/Move/Copy, Properties/Ignore and their native file/folder pickers, and closing/restoring tabs. Include Windows path and case-only rename behavior. Headless checks already cover the core workflows and rendered layouts.
 - [ ] Verify native credential-provider behavior and remembered credentials on supported platforms; current authenticated integration uses an isolated config with password stores disabled.
 - [ ] Validate Native AOT publishing and packaged-app behavior for the SVN feature. Release compilation alone does not cover these.

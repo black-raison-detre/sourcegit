@@ -545,6 +545,7 @@ namespace SourceGit.ViewModels
             OnPropertyChanged(nameof(CanInspectConflict));
             OnPropertyChanged(nameof(CanRevert));
             OnPropertyChanged(nameof(CanCommit));
+            NotifyPropertiesState();
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(SelectionNotice));
             OnPropertyChanged(nameof(IsLoadingDiff));

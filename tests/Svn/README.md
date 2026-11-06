@@ -8,9 +8,10 @@ dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj
 
 The project has no package dependencies. It compiles the production `Svn.cs`,
 `Svn.Connection.cs`, `Svn.History.cs`, `Svn.ChangedPaths.cs`,
-`Svn.FileDiff.cs`, `Svn.Status.cs`, `Svn.Actions.cs`, `Svn.Undo.cs`, and
-`Svn.Conflicts.cs` and `Svn.PathOperations.cs` files directly and uses its own apphost as a fake SVN CLI, so
-the focused checks do not need Subversion installed.
+`Svn.FileDiff.cs`, `Svn.Status.cs`, `Svn.Actions.cs`, `Svn.Undo.cs`,
+`Svn.Conflicts.cs`, `Svn.PathOperations.cs`, and `Svn.Properties.cs` files
+directly. It uses its own apphost as a fake SVN CLI, so the focused checks do
+not need Subversion installed.
 
 The fake-client checks cover working-copy root discovery and Git precedence,
 local XML info, safe argument handling for paths with spaces and `@`,
@@ -61,6 +62,15 @@ ignored children are refused. Commit checks require reciprocal move endpoints
 and complete copied/moved directory selections, and verify recorded copy ancestry
 while preserving unchecked edits.
 
+Property checks read one local node at a time, including the working-copy root,
+without recursive property traversal. They cover text values with exact CR/LF,
+Unicode and whitespace, base64 binary/control values as read-only data, bounded
+XML and value sizes, safe `--file` mutation arguments, terminal peg escaping,
+stale snapshot refusal, and cancellation. Ignore checks escape SVN glob
+characters in selected basenames, preserve existing pattern bytes and order,
+avoid duplicate exact patterns, reject line breaks, and revalidate that every
+selected immediate child remains unversioned before changing `svn:ignore`.
+
 Local text diffs use SVN's internal diff engine and bounded UTF-8 patches;
 invalid UTF-8 or NUL-containing patches are reported as binary. Whitespace
 preferences use SVN's `-b` extension, which can still show blank-line-only
@@ -106,6 +116,10 @@ user Subversion cache or credentials are read or modified.
 
 Integration mode also creates separate temporary `file://` repositories and
 working copies to exercise actual local adds, deletes, and conflict resolution.
+Property fixtures cover empty root properties, local file and directory
+properties, multiline Unicode values, binary base64 values, stale snapshots,
+peg-sensitive names, and exact-name Ignore patterns while leaving similarly
+named unselected files unignored and preserving unrelated properties.
 Conflict fixtures cover text-only BASE/MINE/THEIRS choices, property-only and
 combined choices, a directory property conflict whose conflicted child remains
 untouched after depth-empty resolution, a root property conflict, a tree

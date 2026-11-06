@@ -1238,6 +1238,65 @@
   <x:String x:Key="Text.SVN.PathOperation.RenameMenu" xml:space="preserve">Rename…</x:String>
   <x:String x:Key="Text.SVN.PathOperation.MoveMenu" xml:space="preserve">Move…</x:String>
   <x:String x:Key="Text.SVN.PathOperation.CopyMenu" xml:space="preserve">Copy…</x:String>
+  <x:String x:Key="Text.SVN.Properties.Title" xml:space="preserve">SVN properties</x:String>
+  <x:String x:Key="Text.SVN.Properties.Menu" xml:space="preserve">Properties…</x:String>
+  <x:String x:Key="Text.SVN.Properties.Path" xml:space="preserve">Path inside working copy</x:String>
+  <x:String x:Key="Text.SVN.Properties.PathPlaceholder" xml:space="preserve">Working-copy-relative file or folder; use . for the root</x:String>
+  <x:String x:Key="Text.SVN.Properties.Load" xml:space="preserve">Load</x:String>
+  <x:String x:Key="Text.SVN.Properties.Reload" xml:space="preserve">Reload</x:String>
+  <x:String x:Key="Text.SVN.Properties.WorkingCopyRoot" xml:space="preserve">Working-copy root</x:String>
+  <x:String x:Key="Text.SVN.Properties.Names" xml:space="preserve">Properties</x:String>
+  <x:String x:Key="Text.SVN.Properties.Add" xml:space="preserve">Add</x:String>
+  <x:String x:Key="Text.SVN.Properties.Delete" xml:space="preserve">Delete</x:String>
+  <x:String x:Key="Text.SVN.Properties.DeleteTitle" xml:space="preserve">Delete property</x:String>
+  <x:String x:Key="Text.SVN.Properties.DeleteConfirm" xml:space="preserve">Delete property “{0}” from “{1}”? This schedules a local property change that you can commit.</x:String>
+  <x:String x:Key="Text.SVN.Properties.Name" xml:space="preserve">Property name</x:String>
+  <x:String x:Key="Text.SVN.Properties.NameRequired" xml:space="preserve">Enter a property name.</x:String>
+  <x:String x:Key="Text.SVN.Properties.NameExists" xml:space="preserve">A property with this name already exists. Select it to edit its value.</x:String>
+  <x:String x:Key="Text.SVN.Properties.Value" xml:space="preserve">Value</x:String>
+  <x:String x:Key="Text.SVN.Properties.Save" xml:space="preserve">Save property</x:String>
+  <x:String x:Key="Text.SVN.Properties.Saving" xml:space="preserve">Saving…</x:String>
+  <x:String x:Key="Text.SVN.Properties.CancelOperation" xml:space="preserve">Cancel operation</x:String>
+  <x:String x:Key="Text.SVN.Properties.EmptyList" xml:space="preserve">This path has no direct properties.</x:String>
+  <x:String x:Key="Text.SVN.Properties.Loading" xml:space="preserve">Loading direct properties…</x:String>
+  <x:String x:Key="Text.SVN.Properties.EmptyValue" xml:space="preserve">This property has an empty value.</x:String>
+  <x:String x:Key="Text.SVN.Properties.FinalNewline" xml:space="preserve">The value ends with a newline.</x:String>
+  <x:String x:Key="Text.SVN.Properties.NoFinalNewline" xml:space="preserve">The value has no final newline.</x:String>
+  <x:String x:Key="Text.SVN.Properties.PendingCommit" xml:space="preserve">Property changes are local to this working copy. Commit the path to save them to the repository.</x:String>
+  <x:String x:Key="Text.SVN.Properties.SpecialReadOnly" xml:space="preserve">svn:special is protected because changing it can alter how SVN represents symbolic links.</x:String>
+  <x:String x:Key="Text.SVN.Properties.BinaryReadOnly" xml:space="preserve">This binary property is shown read-only. Delete is unavailable to avoid a text conversion.</x:String>
+  <x:String x:Key="Text.SVN.Properties.CarriageReturnReadOnly" xml:space="preserve">This value contains carriage returns. It is shown read-only because the text editor cannot guarantee an exact newline round trip.</x:String>
+  <x:String x:Key="Text.SVN.Properties.ReloadRequired" xml:space="preserve">Reload this path before editing. The displayed draft belongs to a different or outdated snapshot.</x:String>
+  <x:String x:Key="Text.SVN.Properties.WorkingCopyNotReady" xml:space="preserve">Wait for the working-copy status to finish loading.</x:String>
+  <x:String x:Key="Text.SVN.Properties.LoadFailed" xml:space="preserve">Could not load direct properties. Review the details and retry.</x:String>
+  <x:String x:Key="Text.SVN.Properties.LoadCancelled" xml:space="preserve">The property read was cancelled.</x:String>
+  <x:String x:Key="Text.SVN.Properties.SaveFailed" xml:space="preserve">Could not save the property. Reload the property list before retrying.</x:String>
+  <x:String x:Key="Text.SVN.Properties.DeleteFailed" xml:space="preserve">Could not delete the property. Reload the property list before retrying.</x:String>
+  <x:String x:Key="Text.SVN.Properties.Saved" xml:space="preserve">Property saved locally. Commit afterward to save this change to the repository:</x:String>
+  <x:String x:Key="Text.SVN.Properties.Deleted" xml:space="preserve">Property deleted locally. Commit afterward to save this change to the repository:</x:String>
+  <x:String x:Key="Text.SVN.Properties.Applying" xml:space="preserve">Applying the property change…</x:String>
+  <x:String x:Key="Text.SVN.Properties.DiscardTitle" xml:space="preserve">Discard property draft</x:String>
+  <x:String x:Key="Text.SVN.Properties.DiscardDraft" xml:space="preserve">Discard the unsaved property draft and continue?</x:String>
+  <x:String x:Key="Text.SVN.Properties.BrowseFailed" xml:space="preserve">Could not open the file or folder picker.</x:String>
+  <x:String x:Key="Text.SVN.Ignore.Title" xml:space="preserve">Ignore unversioned paths</x:String>
+  <x:String x:Key="Text.SVN.Ignore.Menu" xml:space="preserve">Ignore…</x:String>
+  <x:String x:Key="Text.SVN.Ignore.Parent" xml:space="preserve">Parent folder</x:String>
+  <x:String x:Key="Text.SVN.Ignore.SelectedPaths" xml:space="preserve">Unversioned paths to ignore</x:String>
+  <x:String x:Key="Text.SVN.Ignore.PatternsToAdd" xml:space="preserve">Exact patterns to add to svn:ignore</x:String>
+  <x:String x:Key="Text.SVN.Ignore.AlreadyPresent" xml:space="preserve">These names already have matching ignore rules. Existing rules were preserved.</x:String>
+  <x:String x:Key="Text.SVN.Ignore.PendingCommit" xml:space="preserve">Existing ignore rules are preserved. This adds only exact names in the parent folder. The svn:ignore change is local until you commit the parent folder.</x:String>
+  <x:String x:Key="Text.SVN.Ignore.Loading" xml:space="preserve">Reading current ignore rules…</x:String>
+  <x:String x:Key="Text.SVN.Ignore.Applying" xml:space="preserve">Applying Ignore and refreshing working-copy status…</x:String>
+  <x:String x:Key="Text.SVN.Ignore.CancelOperation" xml:space="preserve">Cancel operation</x:String>
+  <x:String x:Key="Text.SVN.Ignore.Reload" xml:space="preserve">Reload</x:String>
+  <x:String x:Key="Text.SVN.Ignore.Apply" xml:space="preserve">Ignore selected</x:String>
+  <x:String x:Key="Text.SVN.Ignore.WorkingCopyNotReady" xml:space="preserve">Wait for the working-copy status to finish loading.</x:String>
+  <x:String x:Key="Text.SVN.Ignore.SelectionNotEligible" xml:space="preserve">Select unversioned files or folders in one parent folder.</x:String>
+  <x:String x:Key="Text.SVN.Ignore.LoadFailed" xml:space="preserve">Could not read the parent folder's ignore rules. Review the details and retry.</x:String>
+  <x:String x:Key="Text.SVN.Ignore.LoadCancelled" xml:space="preserve">Reading the parent folder's ignore rules was cancelled.</x:String>
+  <x:String x:Key="Text.SVN.Ignore.PreviewFailed" xml:space="preserve">Could not create safe exact-name ignore patterns.</x:String>
+  <x:String x:Key="Text.SVN.Ignore.Failed" xml:space="preserve">Could not add these names to the parent folder's ignore rules. Reload the preview before retrying.</x:String>
+  <x:String x:Key="Text.SVN.Ignore.Completed" xml:space="preserve">Ignore rules updated locally. Commit the parent folder to save them to the repository:</x:String>
   <x:String x:Key="Text.SVN.PathOperation.Source" xml:space="preserve">Source path</x:String>
   <x:String x:Key="Text.SVN.PathOperation.SourcePlaceholder" xml:space="preserve">Working-copy-relative file or folder</x:String>
   <x:String x:Key="Text.SVN.PathOperation.Browse" xml:space="preserve">Browse ▾</x:String>
@@ -1294,6 +1353,8 @@
   <x:String x:Key="Text.SVN.WorkingCopy.RevertTitle" xml:space="preserve">Revert local changes</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.SelectionEligibility" xml:space="preserve">Every selected path must support this action. Select eligible paths together; actions do not silently skip unsupported paths.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.PathOperationEligibility" xml:space="preserve">Choose exactly one existing versioned file or folder without scheduled, conflicted, switched, copied, or external changes.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.PropertiesEligibility" xml:space="preserve">Choose the working-copy root or exactly one normal or text-modified versioned file or folder. Scheduled, conflicted, switched, copied, and external paths are not eligible.</x:String>
+  <x:String x:Key="Text.SVN.WorkingCopy.IgnoreEligibility" xml:space="preserve">Select only unversioned files or folders from the same parent folder.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.RevertEligibility" xml:space="preserve">Every selected path must support reverting local edits or restoring missing tracked files. Use Undo for scheduled additions or removals. Revert working-copy root properties separately from other paths.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.RevertRootConfirm" xml:space="preserve">Discard local property edits on the working-copy root? Only the root properties will be reverted. Local file and subdirectory edits will be left unchanged. This cannot be undone.</x:String>
   <x:String x:Key="Text.SVN.WorkingCopy.RevertConfirm" xml:space="preserve">Discard local content and property changes and restore missing tracked files in these paths? For directories, this includes versioned descendants. Use Undo scheduled add / remove for scheduled additions or removals. Copies, moves, and conflicts must be handled separately. Discarded edits cannot be recovered by this action.

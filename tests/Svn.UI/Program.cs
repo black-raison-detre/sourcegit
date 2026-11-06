@@ -49,6 +49,8 @@ internal static partial class Program
                 return await RunConflictsOnly(temporary, config);
             if (args.Contains("--path-operations-only", StringComparer.Ordinal))
                 return await RunPathOperationsOnly(temporary, config);
+            if (args.Contains("--properties-only", StringComparer.Ordinal))
+                return await RunPropertiesOnly(temporary, config);
             var localWorkingCopy = await CreateLocalWorkingCopyFixture(temporary, config);
             if (args.Contains("--local-only", StringComparer.Ordinal))
                 return await RunLocalOnly(temporary, config, localWorkingCopy);
@@ -1045,6 +1047,10 @@ internal static partial class Program
         await VerifyConflictUi(window, Path.GetDirectoryName(workingCopy),
             Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
         await VerifyPathOperationUi(window, Path.GetDirectoryName(workingCopy),
+            Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
+        var propertiesFixture = await CreatePropertiesFixture(Path.GetDirectoryName(workingCopy),
+            Preferences.Instance.SvnConfigDirectory);
+        await VerifyPropertiesUi(window, propertiesFixture.WorkingCopy,
             Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
     }
 

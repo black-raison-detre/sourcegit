@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using SourceGit.Native;
 
-internal static class Program
+internal static partial class Program
 {
     private const string ScenarioVariable = "SOURCEGIT_SVN_REGRESSION_SCENARIO";
     private const string InvocationVariable = "SOURCEGIT_SVN_REGRESSION_INVOCATIONS";
@@ -61,6 +61,7 @@ internal static class Program
                 throw new TestFailureException($"Unknown argument: {args[0]}");
 
             await RunFakeClientChecksAsync().ConfigureAwait(false);
+            await RunPropertiesFakeChecksAsync().ConfigureAwait(false);
             Console.WriteLine($"{s_passed} SVN backend regression checks passed.");
             return 0;
         }
@@ -73,7 +74,7 @@ internal static class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "resolve" or "update" or "commit" or "move" or "copy" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "propset" or "propdel" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "resolve" or "update" or "commit" or "move" or "copy" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -91,6 +92,9 @@ internal static class Program
             ? await Console.In.ReadLineAsync().ConfigureAwait(false)
             : null;
         await RecordInvocationAsync(invocationPath, args, input).ConfigureAwait(false);
+
+        if (scenario.StartsWith("wc_properties_", StringComparison.Ordinal))
+            return await RunPropertiesFakeInvocationAsync(args, scenario, invocationPath).ConfigureAwait(false);
 
         if ((args[0] is "add" or "delete" or "revert" or "update" or "commit") && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
         {
@@ -2963,6 +2967,7 @@ internal static class Program
             await RunWorkingCopyActionIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunPathOperationIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunWorkingCopyConflictIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
+            await RunPropertiesIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
 
             var publicUrl = $"svn://127.0.0.1:{port}/public";
             var privateUrl = $"svn://127.0.0.1:{port}/private";

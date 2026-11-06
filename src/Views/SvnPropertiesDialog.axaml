@@ -1,0 +1,114 @@
+<v:ChromelessWindow xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:vm="using:SourceGit.ViewModels"
+                    xmlns:v="using:SourceGit.Views"
+                    xmlns:c="using:SourceGit.Converters"
+                    x:Class="SourceGit.Views.SvnPropertiesDialog"
+                    x:DataType="vm:SvnPropertiesDialogViewModel"
+                    x:Name="ThisControl"
+                    Icon="/App.ico"
+                    Width="740" MinWidth="620" Height="600" MinHeight="480"
+                    CanResize="True" CloseOnESC="False"
+                    WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Grid Grid.Row="0" Height="28" IsVisible="{Binding !#ThisControl.UseSystemWindowFrame}">
+      <Border Background="{DynamicResource Brush.TitleBar}" BorderThickness="0,0,0,1"
+              BorderBrush="{DynamicResource Brush.Border0}" PointerPressed="BeginMoveWindow"/>
+      <TextBlock x:Name="DialogTitle" Classes="bold" HorizontalAlignment="Center"
+                 VerticalAlignment="Center" IsHitTestVisible="False"/>
+      <v:CaptionButtons HorizontalAlignment="Right" IsCloseButtonOnly="True"
+                        IsVisible="{OnPlatform True, macOS=False}"/>
+    </Grid>
+
+    <ScrollViewer Grid.Row="1" Margin="16" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="10">
+        <StackPanel Spacing="3">
+          <TextBlock Text="{DynamicResource Text.SVN.WorkingCopy}" FontWeight="Bold"/>
+          <TextBlock x:Name="WorkingCopyPath" TextWrapping="Wrap" MaxLines="2" MaxHeight="40"
+                     TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding #WorkingCopyPath.Text}"
+                     Foreground="{DynamicResource Brush.FG2}"/>
+        </StackPanel>
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+          <TextBlock Text="{DynamicResource Text.SVN.Properties.Path}" VerticalAlignment="Center"/>
+          <TextBox x:Name="PropertiesPathInput" Grid.Column="1" MinHeight="28"
+                   Watermark="{DynamicResource Text.SVN.Properties.PathPlaceholder}"
+                   TextChanged="OnPathTextChanged" AutomationProperties.Name="{DynamicResource Text.SVN.Properties.Path}"/>
+          <Button x:Name="BrowsePropertiesPathButton" Grid.Column="2" Classes="flat" Height="28" Padding="10,0"
+                  Content="{DynamicResource Text.SVN.PathOperation.Browse}" Click="OnBrowsePath"/>
+          <Button x:Name="LoadPropertiesButton" Grid.Column="3" Classes="flat" Height="28" Padding="12,0"
+                  Content="{DynamicResource Text.SVN.Properties.Load}" Click="OnLoadProperties"/>
+        </Grid>
+      <Grid ColumnDefinitions="220,*" ColumnSpacing="12" MinHeight="100">
+        <Grid RowDefinitions="Auto,*">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4" Margin="0,0,0,6">
+            <TextBlock Text="{DynamicResource Text.SVN.Properties.Names}" FontWeight="Bold" VerticalAlignment="Center"/>
+            <Button x:Name="AddPropertyButton" Grid.Column="1" Classes="flat" Height="26" Padding="8,0"
+                    Content="{DynamicResource Text.SVN.Properties.Add}" Click="OnAddProperty"/>
+          <Button x:Name="DeletePropertyButton" Grid.Column="2" Classes="flat" Height="26" Padding="8,0"
+                  Content="{DynamicResource Text.SVN.Properties.Delete}" Click="OnDeleteProperty"/>
+          </Grid>
+          <Border Grid.Row="1" BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}"
+                  Background="{DynamicResource Brush.Contents}">
+            <Grid>
+              <ListBox x:Name="PropertyNames" ItemsSource="{Binding Properties}" SelectionChanged="OnPropertySelectionChanged"
+                       AutomationProperties.Name="{DynamicResource Text.SVN.Properties.Names}">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SvnPropertyItem">
+                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock x:Name="PropertiesListEmptyMessage" Margin="12" TextWrapping="Wrap"
+                         Foreground="{DynamicResource Brush.FG2}" VerticalAlignment="Center" IsHitTestVisible="False"/>
+            </Grid>
+          </Border>
+        </Grid>
+
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="6">
+          <TextBlock Text="{DynamicResource Text.SVN.Properties.Name}" FontWeight="Bold"/>
+          <TextBox x:Name="PropertyNameInput" Grid.Row="1" MinHeight="28" TextChanged="OnPropertyNameTextChanged"
+                   AutomationProperties.Name="{DynamicResource Text.SVN.Properties.Name}"/>
+          <Grid Grid.Row="2" RowDefinitions="Auto,*" RowSpacing="6" MinHeight="60">
+            <TextBlock Text="{DynamicResource Text.SVN.Properties.Value}" FontWeight="Bold"/>
+            <Border Grid.Row="1" BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}"
+                    Background="{DynamicResource Brush.Contents}">
+              <TextBox x:Name="PropertyValueInput" AcceptsReturn="True" AcceptsTab="True" TextWrapping="NoWrap"
+                       VerticalContentAlignment="Top" FontFamily="{DynamicResource Fonts.Monospace}"
+                       TextChanged="OnPropertyValueTextChanged" AutomationProperties.Name="{DynamicResource Text.SVN.Properties.Value}"/>
+            </Border>
+          </Grid>
+          <StackPanel Grid.Row="3" Spacing="3">
+            <TextBlock x:Name="PropertyValueHint" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}"/>
+            <TextBlock x:Name="PropertiesValidationMessage" TextWrapping="Wrap" IsVisible="False"/>
+          </StackPanel>
+        </Grid>
+      </Grid>
+      <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}" Background="{DynamicResource Brush.Contents}"
+              Padding="10,8">
+        <TextBlock Text="{DynamicResource Text.SVN.Properties.PendingCommit}" TextWrapping="Wrap"
+                   Foreground="{DynamicResource Brush.FG2}"/>
+      </Border>
+      <TextBlock x:Name="PropertyReadOnlyNotice" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}" IsVisible="False"/>
+      </StackPanel>
+    </ScrollViewer>
+
+    <StackPanel Grid.Row="2" Margin="16,0,16,16" Spacing="6">
+      <StackPanel x:Name="PropertiesErrorPanel" Spacing="4" IsVisible="False">
+        <ScrollViewer MaxHeight="44" HorizontalScrollBarVisibility="Disabled">
+          <TextBlock x:Name="PropertiesErrorMessage" TextWrapping="Wrap"/>
+        </ScrollViewer>
+        <Expander x:Name="PropertiesErrorDetailsExpander" Header="{DynamicResource Text.SVN.Connection.Details}" IsVisible="False">
+          <TextBox x:Name="PropertiesErrorDetails" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="64"/>
+        </Expander>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button x:Name="ReloadPropertiesButton" Classes="flat" Height="30" MinWidth="80" Padding="12,0"
+                Content="{DynamicResource Text.SVN.Properties.Reload}" Click="OnReloadProperties"/>
+        <Button x:Name="CancelPropertiesButton" Classes="flat" Height="30" MinWidth="80" Padding="12,0"
+                Content="{DynamicResource Text.Cancel}" Click="OnCancel"/>
+        <Button x:Name="SavePropertyButton" Classes="flat primary" Height="30" MinWidth="100" Padding="12,0"
+                Content="{DynamicResource Text.SVN.Properties.Save}" Click="OnSaveProperty"/>
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</v:ChromelessWindow>

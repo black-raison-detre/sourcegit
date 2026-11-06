@@ -1,0 +1,82 @@
+<v:ChromelessWindow xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:vm="using:SourceGit.ViewModels"
+                    xmlns:v="using:SourceGit.Views"
+                    x:Class="SourceGit.Views.SvnIgnoreDialog"
+                    x:DataType="vm:SvnIgnoreDialogViewModel"
+                    x:Name="ThisControl"
+                    Icon="/App.ico"
+                    Width="620" MinWidth="540" Height="500" MinHeight="460"
+                    CanResize="True" CloseOnESC="False"
+                    WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Grid Grid.Row="0" Height="28" IsVisible="{Binding !#ThisControl.UseSystemWindowFrame}">
+      <Border Background="{DynamicResource Brush.TitleBar}" BorderThickness="0,0,0,1"
+              BorderBrush="{DynamicResource Brush.Border0}" PointerPressed="BeginMoveWindow"/>
+      <TextBlock x:Name="DialogTitle" Classes="bold" HorizontalAlignment="Center"
+                 VerticalAlignment="Center" IsHitTestVisible="False"/>
+      <v:CaptionButtons HorizontalAlignment="Right" IsCloseButtonOnly="True"
+                        IsVisible="{OnPlatform True, macOS=False}"/>
+    </Grid>
+
+    <ScrollViewer Grid.Row="1" Margin="16" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="10">
+        <StackPanel Spacing="3">
+          <TextBlock Text="{DynamicResource Text.SVN.Ignore.Parent}" FontWeight="Bold"/>
+          <TextBlock x:Name="IgnoreParentPath" TextWrapping="Wrap" MaxLines="2" MaxHeight="42"
+                     TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding #IgnoreParentPath.Text}"
+                     Foreground="{DynamicResource Brush.FG2}"/>
+        </StackPanel>
+        <StackPanel Spacing="5">
+          <TextBlock Text="{DynamicResource Text.SVN.Ignore.SelectedPaths}" FontWeight="Bold"/>
+          <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}" Background="{DynamicResource Brush.Contents}"
+                  MaxHeight="120">
+            <ListBox x:Name="IgnoreSelectedPaths" ItemsSource="{Binding SelectedPaths}"
+                     AutomationProperties.Name="{DynamicResource Text.SVN.Ignore.SelectedPaths}">
+              <ListBox.ItemTemplate>
+                <DataTemplate DataType="x:String"><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}"/></DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Border>
+        </StackPanel>
+        <StackPanel Spacing="5">
+          <TextBlock Text="{DynamicResource Text.SVN.Ignore.PatternsToAdd}" FontWeight="Bold"/>
+          <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}" Background="{DynamicResource Brush.Contents}">
+            <TextBox x:Name="IgnorePatternsPreview" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                     MinHeight="88" MaxHeight="180" VerticalContentAlignment="Top"
+                     FontFamily="{DynamicResource Fonts.Monospace}"
+                     AutomationProperties.Name="{DynamicResource Text.SVN.Ignore.PatternsToAdd}"/>
+          </Border>
+          <TextBlock x:Name="IgnoreNoNewPatternsNotice" Text="{DynamicResource Text.SVN.Ignore.AlreadyPresent}"
+                     TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}" IsVisible="False"/>
+        </StackPanel>
+        <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}" Background="{DynamicResource Brush.Contents}"
+                Padding="10,8">
+          <TextBlock Text="{DynamicResource Text.SVN.Ignore.PendingCommit}" TextWrapping="Wrap"
+                     Foreground="{DynamicResource Brush.FG2}"/>
+        </Border>
+        <TextBlock x:Name="IgnoreBusyMessage" Text="{DynamicResource Text.SVN.Ignore.Loading}" IsVisible="False"
+                   Foreground="{DynamicResource Brush.FG2}"/>
+      </StackPanel>
+    </ScrollViewer>
+
+    <StackPanel Grid.Row="2" Margin="16,0,16,16" Spacing="6">
+      <StackPanel x:Name="IgnoreErrorPanel" Spacing="4" IsVisible="False">
+        <ScrollViewer MaxHeight="44" HorizontalScrollBarVisibility="Disabled">
+          <TextBlock x:Name="IgnoreErrorMessage" TextWrapping="Wrap"/>
+        </ScrollViewer>
+        <Expander x:Name="IgnoreErrorDetailsExpander" Header="{DynamicResource Text.SVN.Connection.Details}" IsVisible="False">
+          <TextBox x:Name="IgnoreErrorDetails" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="64"/>
+        </Expander>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button x:Name="ReloadIgnoreButton" Classes="flat" Height="30" MinWidth="80" Padding="12,0"
+                Content="{DynamicResource Text.SVN.Ignore.Reload}" Click="OnReload"/>
+        <Button x:Name="CancelIgnoreButton" Classes="flat" Height="30" MinWidth="80" Padding="12,0"
+                Content="{DynamicResource Text.Cancel}" Click="OnCancel"/>
+        <Button x:Name="IgnoreButton" Classes="flat primary" Height="30" MinWidth="100" Padding="12,0"
+                Content="{DynamicResource Text.SVN.Ignore.Apply}" Click="OnApply"/>
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</v:ChromelessWindow>
