@@ -51,6 +51,8 @@ internal static partial class Program
                 return await RunPathOperationsOnly(temporary, config);
             if (args.Contains("--properties-only", StringComparer.Ordinal))
                 return await RunPropertiesOnly(temporary, config);
+            if (args.Contains("--changelists-only", StringComparer.Ordinal))
+                return await RunChangelistsOnly(temporary, config);
             var localWorkingCopy = await CreateLocalWorkingCopyFixture(temporary, config);
             if (args.Contains("--local-only", StringComparer.Ordinal))
                 return await RunLocalOnly(temporary, config, localWorkingCopy);
@@ -73,7 +75,7 @@ internal static partial class Program
 
             Console.WriteLine("Fixture ready; starting headless application.");
             var session = HeadlessUnitTestSession.StartNew(typeof(Program));
-            using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
             try
             {
                 await session.Dispatch<bool>(async () =>
@@ -612,7 +614,7 @@ internal static partial class Program
     private static async Task<int> RunLocalOnly(string temporary, string config, string workingCopy)
     {
         var session = HeadlessUnitTestSession.StartNew(typeof(Program));
-        using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         try
         {
             var screenshotDirectory = Environment.GetEnvironmentVariable("SOURCEGIT_SVN_UI_ARTIFACTS") ??
@@ -725,9 +727,10 @@ internal static partial class Program
         var repositoryTabs = window.GetVisualDescendants().OfType<TabControl>().Single(control => control.Name == "RepositoryTabs");
         repositoryTabs.SelectedIndex = 1;
         Dispatcher.UIThread.RunJobs();
+        await WaitForWorkingCopy(repository.WorkingCopy);
         Check(repository.SelectedTabIndex == 1, "working-copy tab selection is bound to repository state");
         var grid = window.GetVisualDescendants().OfType<DataGrid>().Single(control => control.Name == "WorkingCopyEntries");
-        Check(ReferenceEquals(grid.ItemsSource, repository.WorkingCopy.Entries) && grid.IsReadOnly && grid.GetVisualDescendants().OfType<DataGridRow>().Any(),
+        Check(ReferenceEquals(grid.ItemsSource, repository.WorkingCopy.VisibleEntries) && grid.IsReadOnly && grid.GetVisualDescendants().OfType<DataGridRow>().Any(),
             "working-copy status rows are displayed read-only");
 
         var entries = repository.WorkingCopy;
@@ -1051,6 +1054,10 @@ internal static partial class Program
         var propertiesFixture = await CreatePropertiesFixture(Path.GetDirectoryName(workingCopy),
             Preferences.Instance.SvnConfigDirectory);
         await VerifyPropertiesUi(window, propertiesFixture.WorkingCopy,
+            Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
+        var changelistFixture = await CreateChangelistFixture(Path.GetDirectoryName(workingCopy),
+            Preferences.Instance.SvnConfigDirectory);
+        await VerifyChangelistUi(window, changelistFixture,
             Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
     }
 
@@ -1963,7 +1970,7 @@ internal static partial class Program
 
     private static Task WaitForPaths(SvnRepository repository) => WaitUntil(() => !repository.IsLoadingPaths);
     private static Task WaitForDiff(SvnRepository repository) => WaitUntil(() => !repository.IsLoadingDiff);
-    private static Task WaitForWorkingCopy(SvnWorkingCopy workingCopy) => WaitUntil(() => !workingCopy.IsLoading);
+    private static Task WaitForWorkingCopy(SvnWorkingCopy workingCopy) => WaitUntil(() => !workingCopy.IsBusy);
     private static Task WaitForLocalDiff(SvnWorkingCopy workingCopy) => WaitUntil(() => !workingCopy.IsLoadingDiff);
 
     private static async Task<SourceGit.Native.SvnChangedPath> SelectChangedPath(SvnRepository repository, DataGrid pathsGrid,

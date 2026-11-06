@@ -118,6 +118,8 @@ namespace SourceGit.Views
             AcceptButton.Content = App.Text("SVN.Commit.Submit");
             UpdateForm.IsVisible = false;
             CommitForm.IsVisible = true;
+            CommitChangelistScope.IsVisible = workingCopy?.HasChangelistFilter == true;
+            CommitChangelistScope.Text = workingCopy?.ChangelistScopeText ?? string.Empty;
             foreach (var entry in candidates)
             {
                 var check = new CheckBox

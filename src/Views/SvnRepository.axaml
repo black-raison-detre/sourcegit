@@ -390,8 +390,21 @@
             <ColumnDefinition Width="3"/>
             <ColumnDefinition Width="13*" MinWidth="340"/>
           </Grid.ColumnDefinitions>
-          <Grid Grid.Column="0">
-            <DataGrid x:Name="WorkingCopyEntries" ItemsSource="{Binding Entries}"
+          <Grid Grid.Column="0" RowDefinitions="Auto,*">
+            <Grid Margin="8,4,8,8" ColumnDefinitions="Auto,*">
+              <TextBlock Text="{DynamicResource Text.SVN.Changelist.Label}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <ComboBox x:Name="WorkingCopyChangelistFilter" Grid.Column="1" HorizontalAlignment="Stretch"
+                        MinHeight="26" ItemsSource="{Binding ChangelistFilters}"
+                        SelectedItem="{Binding SelectedChangelistFilter, Mode=TwoWay}" IsEnabled="{Binding CanFileOperations}"
+                        AutomationProperties.Name="{DynamicResource Text.SVN.Changelist.Label}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate DataType="vm:SvnChangelistFilter">
+                    <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}"/>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+            <DataGrid x:Name="WorkingCopyEntries" Grid.Row="1" ItemsSource="{Binding VisibleEntries}"
                       IsEnabled="{Binding !IsBusy}" SelectionChanged="OnWorkingCopySelectionChanged"
                       ContextRequested="OnWorkingCopyContextRequested"
                       AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended"
@@ -431,9 +444,16 @@
                 </DataGridTemplateColumn>
               </DataGrid.Columns>
             </DataGrid>
-            <TextBlock Margin="16" Text="{DynamicResource Text.SVN.WorkingCopy.Clean}" IsVisible="{Binding IsEmpty}"
+            <TextBlock Grid.Row="1" Margin="16" Text="{DynamicResource Text.SVN.WorkingCopy.Clean}" IsVisible="{Binding IsEmpty}"
                        TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Brush.FG2}"/>
-            <ScrollViewer IsVisible="{Binding HasError}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+            <StackPanel Grid.Row="1" Margin="16" Spacing="8" IsVisible="{Binding IsFilteredEmpty}"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+              <TextBlock Text="{Binding FilteredEmptyMessage}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}"/>
+              <Button x:Name="ShowAllChangelists" Classes="flat" Height="26" Padding="12,0"
+                      HorizontalAlignment="Center" Content="{DynamicResource Text.SVN.Changelist.ShowAll}"
+                      IsEnabled="{Binding CanFileOperations}" Click="OnShowAllChangelists"/>
+            </StackPanel>
+            <ScrollViewer Grid.Row="1" IsVisible="{Binding HasError}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           Background="{DynamicResource Brush.Contents}">
               <StackPanel Margin="8" Spacing="8">
                 <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap"/>

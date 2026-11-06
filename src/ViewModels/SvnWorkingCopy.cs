@@ -72,7 +72,7 @@ namespace SourceGit.ViewModels
             get => _selectedEntry;
             set
             {
-                if (IsBusy)
+                if (IsBusy || _updatingChangelistFilter || (value != null && !VisibleEntries.Contains(value)))
                     return;
                 if (SetProperty(ref _selectedEntry, value))
                 {
@@ -104,8 +104,10 @@ namespace SourceGit.ViewModels
             _ => "SVN.WorkingCopy.Failed",
         });
         public string ErrorDetails => _errorDetails;
-        public bool IsEmpty => _status == "Ready" && Entries.Count == 0;
-        public string Title => App.Text("SVN.WorkingCopy.Title", Entries.Count);
+        public bool IsEmpty => _status == "Ready" && Entries.Count == 0 && !HasChangelistFilter;
+        public string Title => HasChangelistFilter
+            ? App.Text("SVN.Changelist.FilteredTitle", VisibleEntries.Count, Entries.Count)
+            : App.Text("SVN.WorkingCopy.Title", Entries.Count);
         public bool HasSelection => SelectedEntry != null;
         public string SelectionNotice => SelectedEntry == null ? string.Empty :
             SelectedEntry.Entry.Item == "missing" || _diffIsMissing ? App.Text("SVN.WorkingCopy.MissingNotice") :
@@ -183,8 +185,9 @@ namespace SourceGit.ViewModels
                     _operationStatusEntries = result.Entries;
                     Entries.Clear();
                     Entries.AddRange(result.Entries.Select(entry => new SvnWorkingCopyEntry(entry)));
-                    _selectedEntries = Entries.Where(entry => selectedPaths.Contains(entry.Path)).ToArray();
-                    SetProperty(ref _selectedEntry, Entries.FirstOrDefault(entry => entry.Path == selectedPath), nameof(SelectedEntry));
+                    RefreshChangelistView();
+                    _selectedEntries = VisibleEntries.Where(entry => selectedPaths.Contains(entry.Path)).ToArray();
+                    SetProperty(ref _selectedEntry, VisibleEntries.FirstOrDefault(entry => entry.Path == selectedPath), nameof(SelectedEntry));
                 }
             }
             catch (OperationCanceledException)
@@ -530,6 +533,7 @@ namespace SourceGit.ViewModels
             OnPropertyChanged(nameof(ErrorDetails));
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(Title));
+            NotifyChangelistState();
             NotifyDiffState();
         }
 
@@ -546,6 +550,8 @@ namespace SourceGit.ViewModels
             OnPropertyChanged(nameof(CanRevert));
             OnPropertyChanged(nameof(CanCommit));
             NotifyPropertiesState();
+            OnPropertyChanged(nameof(CanAssignChangelist));
+            OnPropertyChanged(nameof(CanRemoveFromChangelist));
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(SelectionNotice));
             OnPropertyChanged(nameof(IsLoadingDiff));

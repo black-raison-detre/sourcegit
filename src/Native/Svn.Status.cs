@@ -129,6 +129,7 @@ namespace SourceGit.Native
                     if (parsed.Item == "normal" && parsed.Properties is "none" or "normal" &&
                         !parsed.IsCopied && !parsed.IsSwitched && !parsed.IsTreeConflicted &&
                         string.IsNullOrEmpty(parsed.MovedFrom) && string.IsNullOrEmpty(parsed.MovedTo) &&
+                        string.IsNullOrEmpty(parsed.Changelist) &&
                         !(includeExternals && (isExternalEntry || parsed.IsFileExternal)))
                         continue;
 

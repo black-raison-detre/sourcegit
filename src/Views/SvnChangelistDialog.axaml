@@ -1,0 +1,71 @@
+<v:ChromelessWindow xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:v="using:SourceGit.Views"
+                    x:Class="SourceGit.Views.SvnChangelistDialog"
+                    x:Name="ThisControl"
+                    Icon="/App.ico"
+                    Width="620" MinWidth="500" Height="480" MinHeight="400"
+                    CanResize="True" CloseOnESC="False"
+                    WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Grid Grid.Row="0" Height="28" IsVisible="{Binding !#ThisControl.UseSystemWindowFrame}">
+      <Border Background="{DynamicResource Brush.TitleBar}" BorderThickness="0,0,0,1"
+              BorderBrush="{DynamicResource Brush.Border0}" PointerPressed="BeginMoveWindow"/>
+      <TextBlock x:Name="DialogTitle" Classes="bold" HorizontalAlignment="Center"
+                 VerticalAlignment="Center" IsHitTestVisible="False"/>
+      <v:CaptionButtons HorizontalAlignment="Right" IsCloseButtonOnly="True"
+                        IsVisible="{OnPlatform True, macOS=False}"/>
+    </Grid>
+    <ScrollViewer Grid.Row="1" Margin="16" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="10">
+        <TextBlock x:Name="ChangelistWorkingCopyPath" TextWrapping="Wrap" MaxLines="2" MaxHeight="42"
+                   TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.FG2}"/>
+        <TextBlock x:Name="ChangelistSelectedCount" FontWeight="Bold"/>
+        <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Border1}" Background="{DynamicResource Brush.Contents}">
+          <ListBox x:Name="ChangelistSelectedPaths" MaxHeight="120" MinHeight="50"
+                   AutomationProperties.Name="{DynamicResource Text.SVN.Changelist.SelectedFiles}">
+            <ListBox.ItemTemplate>
+              <DataTemplate DataType="x:String"><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}"/></DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Border>
+        <TextBlock Text="{DynamicResource Text.SVN.Changelist.Label}" FontWeight="Bold"/>
+        <ComboBox x:Name="ExistingChangelists" HorizontalAlignment="Stretch" SelectionChanged="OnExistingChangelistChanged"
+                  AutomationProperties.Name="{DynamicResource Text.SVN.Changelist.Existing}">
+          <ComboBox.ItemTemplate>
+            <DataTemplate DataType="v:SvnChangelistChoice">
+              <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}"/>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <StackPanel x:Name="NewChangelistForm" Spacing="4">
+          <TextBlock Text="{DynamicResource Text.SVN.Changelist.Name}"/>
+          <TextBox x:Name="ChangelistNameInput" TextChanged="OnNameChanged"
+                   AutomationProperties.Name="{DynamicResource Text.SVN.Changelist.Name}"/>
+        </StackPanel>
+        <TextBlock x:Name="ChangelistValidationMessage" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}"/>
+        <TextBlock Text="{DynamicResource Text.SVN.Changelist.LocalNotice}" TextWrapping="Wrap" Foreground="{DynamicResource Brush.FG2}"/>
+      </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="2" Margin="16,0,16,16" Spacing="6">
+      <StackPanel x:Name="ChangelistErrorPanel" Spacing="4" IsVisible="False">
+        <ScrollViewer MaxHeight="44" HorizontalScrollBarVisibility="Disabled">
+          <TextBlock x:Name="ChangelistErrorMessage" TextWrapping="Wrap"/>
+        </ScrollViewer>
+        <Expander x:Name="ChangelistErrorDetailsExpander" Header="{DynamicResource Text.SVN.Connection.Details}" IsVisible="False">
+          <TextBox x:Name="ChangelistErrorDetails" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="64"/>
+        </Expander>
+      </StackPanel>
+      <TextBlock x:Name="ChangelistBusyMessage" Text="{DynamicResource Text.SVN.Changelist.Applying}" IsVisible="False"
+                 Foreground="{DynamicResource Brush.FG2}"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button x:Name="ReloadChangelistButton" Classes="flat" Height="30" MinWidth="80" Padding="12,0"
+                Content="{DynamicResource Text.SVN.Changelist.Reload}" Click="OnReload"/>
+        <Button x:Name="CancelChangelistButton" Classes="flat" Height="30" MinWidth="80" Padding="12,0"
+                Content="{DynamicResource Text.Cancel}" Click="OnCancel"/>
+        <Button x:Name="AssignChangelistButton" Classes="flat primary" Height="30" MinWidth="80" Padding="12,0"
+                Content="{DynamicResource Text.SVN.Changelist.Assign}" Click="OnAssign"/>
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</v:ChromelessWindow>

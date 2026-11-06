@@ -36,6 +36,7 @@
       </StackPanel>
       <StackPanel x:Name="CommitForm" Spacing="8" IsVisible="False">
         <TextBlock Text="{DynamicResource Text.SVN.Commit.Scope}" TextWrapping="Wrap"/>
+        <TextBlock x:Name="CommitChangelistScope" TextWrapping="Wrap" IsVisible="False" Foreground="{DynamicResource Brush.FG2}"/>
         <TextBlock x:Name="CandidateCount" FontWeight="Bold"/>
         <TextBlock x:Name="CommitSelectionNotice" TextWrapping="Wrap" IsVisible="False" Foreground="{DynamicResource Brush.FG2}"/>
         <Border BorderThickness="1" BorderBrush="{DynamicResource Brush.Border2}" Background="{DynamicResource Brush.Contents}">

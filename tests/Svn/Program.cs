@@ -62,6 +62,7 @@ internal static partial class Program
 
             await RunFakeClientChecksAsync().ConfigureAwait(false);
             await RunPropertiesFakeChecksAsync().ConfigureAwait(false);
+            await RunChangelistFakeChecksAsync().ConfigureAwait(false);
             Console.WriteLine($"{s_passed} SVN backend regression checks passed.");
             return 0;
         }
@@ -74,7 +75,7 @@ internal static partial class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "propset" or "propdel" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "resolve" or "update" or "commit" or "move" or "copy" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "propset" or "propdel" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "resolve" or "update" or "commit" or "move" or "copy" or "changelist" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -231,6 +232,12 @@ internal static partial class Program
             return 0;
         }
 
+        if (args[0] == "info" && scenario.StartsWith("wc_changelist_", StringComparison.Ordinal))
+        {
+            WriteWorkingCopyInfo();
+            return 0;
+        }
+
         if (args[0] == "status" && scenario.StartsWith("wc_status_", StringComparison.Ordinal))
         {
             if (scenario == "wc_status_slow")
@@ -296,6 +303,34 @@ internal static partial class Program
                 await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
             else
                 WriteWorkingCopyConflictStatus();
+            return 0;
+        }
+
+        if (args[0] == "status" && scenario.StartsWith("wc_changelist_", StringComparison.Ordinal))
+        {
+            WriteWorkingCopyChangelistStatus(scenario);
+            return 0;
+        }
+
+        if (args[0] == "changelist" && scenario.StartsWith("wc_changelist_", StringComparison.Ordinal))
+        {
+            if (scenario == "wc_changelist_slow")
+                await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+            if (scenario == "wc_changelist_noisy")
+            {
+                await Console.Out.WriteAsync(new string('x', 140 * 1024)).ConfigureAwait(false);
+                Console.Out.Flush();
+                if (!string.IsNullOrEmpty(invocationPath))
+                    await File.WriteAllTextAsync(invocationPath + ".completed", "drained").ConfigureAwait(false);
+                WriteChangelistMutationState(args, invocationPath);
+                return 0;
+            }
+            if (scenario == "wc_changelist_fail")
+            {
+                Console.Error.WriteLine("svn: E200000: synthetic changelist failure after partial processing");
+                return 1;
+            }
+            WriteChangelistMutationState(args, invocationPath);
             return 0;
         }
 
@@ -2965,6 +3000,7 @@ internal static partial class Program
                 "[global]\nstore-plaintext-passwords = no\n").ConfigureAwait(false);
 
             await RunWorkingCopyActionIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
+            await RunChangelistIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunPathOperationIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunWorkingCopyConflictIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunPropertiesIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);

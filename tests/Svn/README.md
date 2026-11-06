@@ -9,9 +9,9 @@ dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj
 The project has no package dependencies. It compiles the production `Svn.cs`,
 `Svn.Connection.cs`, `Svn.History.cs`, `Svn.ChangedPaths.cs`,
 `Svn.FileDiff.cs`, `Svn.Status.cs`, `Svn.Actions.cs`, `Svn.Undo.cs`,
-`Svn.Conflicts.cs`, `Svn.PathOperations.cs`, and `Svn.Properties.cs` files
-directly. It uses its own apphost as a fake SVN CLI, so the focused checks do
-not need Subversion installed.
+`Svn.Conflicts.cs`, `Svn.PathOperations.cs`, `Svn.Properties.cs`, and
+`Svn.Changelists.cs` files directly. It uses its own apphost as a fake SVN
+CLI, so the focused checks do not need Subversion installed.
 
 The fake-client checks cover working-copy root discovery and Git precedence,
 local XML info, safe argument handling for paths with spaces and `@`,
@@ -70,6 +70,17 @@ stale snapshot refusal, and cancellation. Ignore checks escape SVN glob
 characters in selected basenames, preserve existing pattern bytes and order,
 avoid duplicate exact patterns, reject line breaks, and revalidate that every
 selected immediate child remains unversioned before changing `svn:ignore`.
+
+Changelist checks cover exact membership snapshots, clean changelist rows in
+full status, name validation, and conservative regular-file eligibility. They
+refuse stale, switched, external, copied, moved, conflicted, directory, symlink,
+and partial multi-selections. The fake client verifies option-looking Unicode
+names and paths after `--`, terminal `@` escaping, `--depth empty`, config and
+auth-cache boundaries, reassignment/removal, postcondition checks, partial
+failure reporting, output draining, and cancellation. Integration mode creates
+a disposable `file://` repository and checks real assignment, reassignment,
+removal, and clean/added membership while confirming local content, properties,
+and schedules remain unchanged.
 
 Local text diffs use SVN's internal diff engine and bounded UTF-8 patches;
 invalid UTF-8 or NUL-containing patches are reported as binary. Whitespace

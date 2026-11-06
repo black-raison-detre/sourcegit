@@ -1491,4 +1491,40 @@ Review the refreshed status before retrying.</x:String>
   <x:String x:Key="Text.SVN.Conflict.ResolveFailed" xml:space="preserve">Could not resolve conflicts at “{0}”. Review the refreshed status.</x:String>
   <x:String x:Key="Text.SVN.Conflict.ResolvedNotice" xml:space="preserve">Resolved conflicts at “{0}”.</x:String>
   <x:String x:Key="Text.SVN.Conflict.TextTruncated" xml:space="preserve">Content was truncated after 256 KiB.</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Label" xml:space="preserve">Changelist</x:String>
+  <x:String x:Key="Text.SVN.Changelist.All" xml:space="preserve">All</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Ungrouped" xml:space="preserve">Ungrouped</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Named" xml:space="preserve">“{0}”</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Scope" xml:space="preserve">Changelist: {0}</x:String>
+  <x:String x:Key="Text.SVN.Changelist.FilteredTitle" xml:space="preserve">Working copy ({0} of {1})</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Empty" xml:space="preserve">No files in this changelist.</x:String>
+  <x:String x:Key="Text.SVN.Changelist.EmptyUngrouped" xml:space="preserve">No ungrouped files.</x:String>
+  <x:String x:Key="Text.SVN.Changelist.ShowAll" xml:space="preserve">Show all files</x:String>
+  <x:String x:Key="Text.SVN.Changelist.AssignMenu" xml:space="preserve">Assign to changelist…</x:String>
+  <x:String x:Key="Text.SVN.Changelist.RemoveMenu" xml:space="preserve">Remove from changelist</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Eligibility" xml:space="preserve">Select regular versioned files with normal, modified, or added status. Conflicted, copied, moved, switched, external, missing, deleted, and symbolic-link paths are unavailable.</x:String>
+  <x:String x:Key="Text.SVN.Changelist.RemoveEligibility" xml:space="preserve">Select eligible files that all belong to a changelist.</x:String>
+  <x:String x:Key="Text.SVN.Changelist.AssignTitle" xml:space="preserve">Assign to changelist</x:String>
+  <x:String x:Key="Text.SVN.Changelist.SelectedFiles" xml:space="preserve">Selected files</x:String>
+  <x:String x:Key="Text.SVN.Changelist.SelectedCount" xml:space="preserve">Selected files ({0})</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Existing" xml:space="preserve">Existing changelist or new name</x:String>
+  <x:String x:Key="Text.SVN.Changelist.New" xml:space="preserve">New changelist…</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Name" xml:space="preserve">Name</x:String>
+  <x:String x:Key="Text.SVN.Changelist.NameHint" xml:space="preserve">Enter a nonblank name of at most 255 characters, without control characters.</x:String>
+  <x:String x:Key="Text.SVN.Changelist.LocalNotice" xml:space="preserve">Changelists organize files in this working copy only. Assignment does not change file contents or commit changes. A successful commit normally removes the committed files from their changelists.</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Assign" xml:space="preserve">Assign</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Reload" xml:space="preserve">Reload</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Applying" xml:space="preserve">Updating changelist membership…</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Assigned" xml:space="preserve">Assigned changelist membership for:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Removed" xml:space="preserve">Removed changelist membership for:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Changelist.Failed" xml:space="preserve">Could not update changelist membership for:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Changelist.RemoveConfirm" xml:space="preserve">Remove {0} selected file(s) from their changelists? File contents and scheduled changes are preserved.
+
+{1}</x:String>
+  <x:String x:Key="Text.SVN.Changelist.ReloadRequired" xml:space="preserve">The assignment failed, was cancelled, or the selection changed. Reload and review membership before trying again. Your name is preserved.</x:String>
+  <x:String x:Key="Text.SVN.Changelist.SelectionChanged" xml:space="preserve">Some selected files are no longer eligible. Close this dialog and review the working copy.</x:String>
+  <x:String x:Key="Text.SVN.Changelist.CancelOperation" xml:space="preserve">Cancel operation</x:String>
 </ResourceDictionary>

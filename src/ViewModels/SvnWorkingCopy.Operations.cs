@@ -22,10 +22,10 @@ namespace SourceGit.ViewModels
 
         public void SetSelectedEntries(IEnumerable<SvnWorkingCopyEntry> entries)
         {
-            if (IsBusy || _disposed)
+            if (IsBusy || _disposed || _updatingChangelistFilter)
                 return;
 
-            _selectedEntries = (entries ?? []).Where(entry => entry != null && Entries.Contains(entry)).Distinct().ToArray();
+            _selectedEntries = (entries ?? []).Where(entry => entry != null && VisibleEntries.Contains(entry)).Distinct().ToArray();
             if (!_selectedEntries.Contains(_selectedEntry))
             {
                 SetProperty(ref _selectedEntry, _selectedEntries.FirstOrDefault(), nameof(SelectedEntry));
@@ -40,7 +40,7 @@ namespace SourceGit.ViewModels
             if (_status != "Ready")
                 return [];
 
-            var candidates = Entries.Where(entry => Native.Svn.CanCommit(entry.Entry)).ToArray();
+            var candidates = VisibleEntries.Where(entry => Native.Svn.CanCommit(entry.Entry)).ToArray();
             var candidateEntries = candidates.Select(entry => entry.Entry).ToArray();
             return candidates.Where(entry => !Native.Svn.HasUnsafeCommitAncestor(
                 entry.Entry, _operationStatusEntries, candidateEntries)).ToArray();

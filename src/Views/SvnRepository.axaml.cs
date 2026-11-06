@@ -226,6 +226,28 @@ namespace SourceGit.Views
             ignore.Click += async (_, _) => await SvnIgnoreDialog.ShowAsync(vm,
                 vm.SelectedEntries.Select(entry => entry.Path).ToArray(), TopLevel.GetTopLevel(this) as Window);
             menu.Items.Add(ignore);
+
+            menu.Items.Add(new Separator());
+            var assignChangelist = new MenuItem
+            {
+                Name = "AssignSvnChangelist",
+                Header = App.Text("SVN.Changelist.AssignMenu"),
+                IsEnabled = vm.CanAssignChangelist,
+            };
+            ExplainDisabledAction(assignChangelist, "SVN.Changelist.Eligibility");
+            assignChangelist.Click += async (_, _) => await SvnChangelistDialog.ShowAsync(vm, TopLevel.GetTopLevel(this) as Window);
+            menu.Items.Add(assignChangelist);
+            var removeChangelist = new MenuItem
+            {
+                Name = "RemoveSvnChangelist",
+                Header = App.Text("SVN.Changelist.RemoveMenu"),
+                IsEnabled = vm.CanRemoveFromChangelist,
+            };
+            ExplainDisabledAction(removeChangelist, "SVN.Changelist.RemoveEligibility");
+            removeChangelist.Click += async (_, _) => await vm.RemoveFromChangelistAsync(message =>
+                SvnOperationDialog.ShowConfirmationAsync(App.Text("SVN.Changelist.RemoveMenu"),
+                    App.Text("SVN.Changelist.RemoveMenu"), message, TopLevel.GetTopLevel(this) as Window));
+            menu.Items.Add(removeChangelist);
             menu.Open(target);
         }
 
@@ -304,6 +326,13 @@ namespace SourceGit.Views
             if (DataContext is ViewModels.SvnRepository repo)
                 await repo.WorkingCopy.RefreshAsync();
 
+            e.Handled = true;
+        }
+
+        private void OnShowAllChangelists(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                repo.WorkingCopy.ShowAllChangelists();
             e.Handled = true;
         }
 

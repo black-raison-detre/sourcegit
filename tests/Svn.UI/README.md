@@ -33,6 +33,25 @@ and the explicit Commit workflow:
 dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --properties-only
 ```
 
+To run only the changelist assignment, filtering, membership removal, and scoped
+Commit workflow:
+
+```sh
+dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --changelists-only
+```
+
+The changelist fixture uses a disposable local `file://` repository. It covers
+clean assigned rows, names that collide with the All and Ungrouped filter labels,
+assignment of modified, added, and clean regular files, reassignment to new and
+existing names, cancellation, stale membership reload, filtering and selection
+reconciliation, and multi-file membership removal. The scoped Commit case checks
+the visible candidate checklist, a rejected commit's retry message and preserved
+memberships, and a successful commit that clears membership only for committed
+paths. Light/dark screenshots capture the assignment form and empty retained
+filter state under `sourcegit-svn-ui-artifacts` or the configured artifact path.
+The default full headless run also executes this fixture after the Properties
+workflow in its existing Avalonia session.
+
 The file-operation fixture chooses clean tracked sources outside the changed-only
 grid, verifies exact destination previews, rejects invalid names and folder
 self-copies, and checks that moves retain local text and property edits. It
