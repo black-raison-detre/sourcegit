@@ -1491,6 +1491,65 @@ Review the refreshed status before retrying.</x:String>
   <x:String x:Key="Text.SVN.Conflict.ResolveFailed" xml:space="preserve">Could not resolve conflicts at “{0}”. Review the refreshed status.</x:String>
   <x:String x:Key="Text.SVN.Conflict.ResolvedNotice" xml:space="preserve">Resolved conflicts at “{0}”.</x:String>
   <x:String x:Key="Text.SVN.Conflict.TextTruncated" xml:space="preserve">Content was truncated after 256 KiB.</x:String>
+  <x:String x:Key="Text.SVN.Cleanup.Menu" xml:space="preserve">Cleanup…</x:String>
+  <x:String x:Key="Text.SVN.Cleanup.Title" xml:space="preserve">Cleanup working copy</x:String>
+  <x:String x:Key="Text.SVN.Cleanup.Run" xml:space="preserve">Run cleanup</x:String>
+  <x:String x:Key="Text.SVN.Cleanup.Confirm" xml:space="preserve">Run cleanup on the entire working copy?
+{0}
+
+Close other SVN clients and stop their operations first. Cleanup resumes interrupted operations and clears working-copy write locks. The current selection and changelist filter do not limit its scope.
+
+Unversioned and ignored files are preserved. No changes are committed.</x:String>
+  <x:String x:Key="Text.SVN.Cleanup.Applying" xml:space="preserve">Cleaning working copy…</x:String>
+  <x:String x:Key="Text.SVN.Cleanup.Completed" xml:space="preserve">Cleanup finished for:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Cleanup.Failed" xml:space="preserve">Cleanup did not finish. Review refreshed status and details:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Repair.RestoreMenu" xml:space="preserve">Restore missing files…</x:String>
+  <x:String x:Key="Text.SVN.Repair.RemoveMenu" xml:space="preserve">Schedule missing files for removal…</x:String>
+  <x:String x:Key="Text.SVN.Repair.RenameMenu" xml:space="preserve">Repair external rename…</x:String>
+  <x:String x:Key="Text.SVN.Repair.RestoreTitle" xml:space="preserve">Restore missing files</x:String>
+  <x:String x:Key="Text.SVN.Repair.RemoveTitle" xml:space="preserve">Schedule missing files for removal</x:String>
+  <x:String x:Key="Text.SVN.Repair.Restore" xml:space="preserve">Restore files</x:String>
+  <x:String x:Key="Text.SVN.Repair.Remove" xml:space="preserve">Schedule removal</x:String>
+  <x:String x:Key="Text.SVN.Repair.RestoreConfirm" xml:space="preserve">Working copy: {0}
+
+Restore {1} selected missing file(s) from their working-copy base? This also reverts local property edits on these files. Other files are preserved. No changes are committed.
+
+{2}</x:String>
+  <x:String x:Key="Text.SVN.Repair.RemoveConfirm" xml:space="preserve">Working copy: {0}
+
+Schedule {1} selected missing file(s) for deletion in the next commit? This records their removal in SVN. No changes are committed now.
+
+{2}</x:String>
+  <x:String x:Key="Text.SVN.Repair.RestoreCompleted" xml:space="preserve">Restored selected missing files:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Repair.RemoveCompleted" xml:space="preserve">Scheduled selected missing files for removal. Review and commit afterward:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Repair.RestoreFailed" xml:space="preserve">Could not restore selected missing files. Review refreshed status:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Repair.RemoveFailed" xml:space="preserve">Could not schedule selected missing files for removal. Review refreshed status:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Repair.MissingEligibility" xml:space="preserve">Select missing versioned regular files without conflicts, copies, moves, switches, or externals. File type and missing state are verified again before changing anything.</x:String>
+  <x:String x:Key="Text.SVN.Repair.RenameEligibility" xml:space="preserve">Select one missing versioned regular file. Repair pairs it with an existing unversioned file in this working copy. Directories and local property edits are unavailable.</x:String>
+  <x:String x:Key="Text.SVN.Repair.RenameTitle" xml:space="preserve">Repair external rename</x:String>
+  <x:String x:Key="Text.SVN.Repair.MissingSource" xml:space="preserve">Missing versioned file</x:String>
+  <x:String x:Key="Text.SVN.Repair.ExistingTarget" xml:space="preserve">Existing unversioned file</x:String>
+  <x:String x:Key="Text.SVN.Repair.TargetHint" xml:space="preserve">Relative path within this working copy</x:String>
+  <x:String x:Key="Text.SVN.Repair.Browse" xml:space="preserve">Browse…</x:String>
+  <x:String x:Key="Text.SVN.Repair.Review" xml:space="preserve">Review repair</x:String>
+  <x:String x:Key="Text.SVN.Repair.Rename" xml:space="preserve">Repair rename</x:String>
+  <x:String x:Key="Text.SVN.Repair.RenameNotice" xml:space="preserve">Record this rename with SVN history and keep the chosen file’s contents. A temporary backup protects the file during repair. If interrupted, partial changes may remain; details identify any retained backup. Review and commit afterward.</x:String>
+  <x:String x:Key="Text.SVN.Repair.ReviewRequired" xml:space="preserve">Choose an existing unversioned file, then review the repair.</x:String>
+  <x:String x:Key="Text.SVN.Repair.Reviewing" xml:space="preserve">Checking the missing file and destination…</x:String>
+  <x:String x:Key="Text.SVN.Repair.Applying" xml:space="preserve">Repairing working copy…</x:String>
+  <x:String x:Key="Text.SVN.Repair.RenameCompleted" xml:space="preserve">Rename repaired with history. File contents were preserved; review and commit afterward:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Repair.RenameFailed" xml:space="preserve">Could not finish repairing this rename. Review refreshed status and any retained backup:
+{0}</x:String>
+  <x:String x:Key="Text.SVN.Repair.ReviewFailed" xml:space="preserve">This pair cannot be repaired safely. Review the details.</x:String>
+  <x:String x:Key="Text.SVN.Repair.ReloadRequired" xml:space="preserve">The repair failed, was cancelled, or the files changed. Reload and review these paths before trying again. The destination you entered is preserved.</x:String>
+  <x:String x:Key="Text.SVN.Repair.HiddenResult" xml:space="preserve">The repaired file is hidden by the active changelist filter. Show all files to review it.</x:String>
   <x:String x:Key="Text.SVN.Changelist.Label" xml:space="preserve">Changelist</x:String>
   <x:String x:Key="Text.SVN.Changelist.All" xml:space="preserve">All</x:String>
   <x:String x:Key="Text.SVN.Changelist.Ungrouped" xml:space="preserve">Ungrouped</x:String>

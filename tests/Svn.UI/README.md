@@ -40,6 +40,23 @@ Commit workflow:
 dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --changelists-only
 ```
 
+To run only the working-copy cleanup, missing-file recovery, and external-rename
+repair checks:
+
+```sh
+dotnet run --project tests/Svn.UI/SourceGit.Svn.UI.csproj -- --repair-only
+```
+
+The repair fixture uses a disposable local `file://` repository. It exercises
+cleanup confirmation and busy/error eligibility, strict missing-file selection,
+confirmed restore and scheduled removal, changelist-filter preservation, and
+external rename repair with a reviewed destination snapshot, stale-destination
+reload, cancellation, restored content/properties, and SVN copy ancestry. The
+rename case checks that Commit includes both move endpoints. Compact light/dark
+screenshots cover the review and recovery error states under
+`sourcegit-svn-ui-artifacts` or the configured artifact path. The default
+headless run executes this fixture after the changelist workflow.
+
 The changelist fixture uses a disposable local `file://` repository. It covers
 clean assigned rows, names that collide with the All and Ungrouped filter labels,
 assignment of modified, added, and clean regular files, reassignment to new and

@@ -35,7 +35,8 @@ internal static partial class Program
         if (args.Length > 0 && args[0] is "info" or "log" or "proplist" or "cat" or "status" or "diff" or "propget")
             return await RunFakeSvn(args);
 
-        var temporary = Path.Combine(Path.GetTempPath(), "sourcegit-svn-ui-" + Guid.NewGuid().ToString("N"));
+        var temporary = Path.Combine(ResolvePhysicalDirectory(Path.GetTempPath()),
+            "sourcegit-svn-ui-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporary);
         SourceGit.Native.OS.BasicDirectories.ConfigDir = temporary;
         SourceGit.Native.OS.BasicDirectories.CacheDir = temporary;
@@ -53,6 +54,8 @@ internal static partial class Program
                 return await RunPropertiesOnly(temporary, config);
             if (args.Contains("--changelists-only", StringComparer.Ordinal))
                 return await RunChangelistsOnly(temporary, config);
+            if (args.Contains("--repair-only", StringComparer.Ordinal))
+                return await RunRepairOnly(temporary, config);
             var localWorkingCopy = await CreateLocalWorkingCopyFixture(temporary, config);
             if (args.Contains("--local-only", StringComparer.Ordinal))
                 return await RunLocalOnly(temporary, config, localWorkingCopy);
@@ -75,7 +78,7 @@ internal static partial class Program
 
             Console.WriteLine("Fixture ready; starting headless application.");
             var session = HeadlessUnitTestSession.StartNew(typeof(Program));
-            using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            using var uiTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(8));
             try
             {
                 await session.Dispatch<bool>(async () =>
@@ -1059,6 +1062,8 @@ internal static partial class Program
             Preferences.Instance.SvnConfigDirectory);
         await VerifyChangelistUi(window, changelistFixture,
             Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
+        await VerifyRepairUi(window, Path.GetDirectoryName(workingCopy),
+            Preferences.Instance.SvnConfigDirectory, screenshotDirectory);
     }
 
     private static async Task VerifyCoreWorkingCopyOperations(Window window, TabControl repositoryTabs,
@@ -2017,6 +2022,22 @@ internal static partial class Program
             if (!process.HasExited)
                 process.Kill(true);
         }
+    }
+
+    private static string ResolvePhysicalDirectory(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(fullPath);
+        var current = root;
+        var relative = Path.GetRelativePath(root, fullPath);
+        foreach (var component in relative.Split(
+                     new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            var directory = new DirectoryInfo(Path.Combine(current, component));
+            current = directory.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? directory.FullName;
+        }
+        return Path.GetFullPath(current);
     }
 
     private static async Task<string> RunCapture(string executable, params string[] arguments)

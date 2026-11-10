@@ -34,7 +34,7 @@
 
 - [x] Add Ignore and editable direct Properties, including exact-name ignore previews, protected and binary read-only values, stale-snapshot recovery, and commit-aware working-copy dialogs.
 - [x] Add Changelists for selected regular files: assign/reassign to a new or existing name, remove membership with confirmation, filter All/Ungrouped/named groups, and commit only the active filter's explicit checklist. Preserve clean members, hidden-selection safety, stale-membership recovery, and cancellation drafts.
-- [ ] Add Cleanup and missing-file/rename repair workflows with explicit scope.
+- [x] Add exact-root Cleanup and selected missing-file Restore/Schedule removal actions. Repair external file renames with a reviewed source/destination snapshot, retained SVN history, protected recovery files, stale checks, and cancellation/reload recovery. Keep directory recovery in the existing Revert/Remove workflows.
 - [ ] Add checkout and remote repository browsing as separate entry points from opening an existing working copy.
 - [ ] Support SVN over SSH with explicit key/agent integration.
 - [ ] Add revision search/filtering and navigation by revision number or path.
@@ -74,8 +74,15 @@
 - [x] 129 focused headless GUI checks cover new/existing assignments, reserved-name collisions, hidden and retained selections, stale reload, busy cancellation, context-menu removal, and scoped Commit failure/retry with repository-HEAD verification. Light/dark assignment, empty-filter, and minimum 500×400 new-name/error renders inspected.
 - [x] 718 full headless GUI/workflow checks, Release build, and formatting verification on macOS arm64 with .NET 10.0.400 and SVN 1.14.5. Independent source review approved after fixing reserved-name labels, cancellation draft retention, and active-filter display after refresh. Native desktop and Windows runtime proof remain outstanding.
 
+## Cleanup and repair increment verification (2026-11-08)
+
+- [x] 116 portable backend checks, including 9 focused repair groups for exact cleanup arguments/root identity, missing-file eligibility, working/BASE symbolic-link refusal, stale rename previews, and synchronized cancellation.
+- [x] Disposable `file://` integration covers preservation of modified/unversioned/ignored files during Cleanup, selected BASE restore and property reversion, selected removal scheduling, and rename byte/property/changelist preservation with copy ancestry through Commit. Stale/unsafe pairs are refused; a post-move external write preserves both the newer destination and the original file in a reported protected backup. All authenticated local `svnserve` integration groups pass.
+- [x] 94 focused and 811 full headless GUI/workflow checks pass, including empty/error-state Cleanup, explicit scope confirmations, filtered selections, rename review, stale reload, synchronized busy cancellation, and paired Commit. Compact 500×420 repair/error dialogs and toolbar renders inspected in both themes.
+- [x] Release build and formatting verification pass on macOS arm64 with .NET 10.0.400 and SVN 1.14.5. Independent source review verifies bounded/cancellable hashing, pre-move content fingerprints, BASE symbolic-link checks, and AOT-compatible snapshot tokens. Native desktop, Windows, AOT publishing, and packaged-app proof remain outstanding.
+
 ## Remaining validation
 
-- [ ] Exercise the native desktop interface in light/dark themes: folder opening, F5, keyboard navigation, clipboard copy, resizing, authentication, cancellation, conflict inspection/resolution, Rename/Move/Copy, Properties/Ignore and their native file/folder pickers, Changelists, and closing/restoring tabs. Include Windows path and case-only rename behavior. Headless checks already cover the core workflows and rendered layouts.
+- [ ] Exercise the native desktop interface in light/dark themes: folder opening, F5, keyboard navigation, clipboard copy, resizing, authentication, cancellation, conflict inspection/resolution, Rename/Move/Copy, Properties/Ignore and their native file/folder pickers, Changelists, Cleanup, missing-file and external-rename repair (including its file picker and interrupted-repair recovery), and closing/restoring tabs. Include Windows path and case-only rename behavior. Headless checks already cover the core workflows and rendered layouts.
 - [ ] Verify native credential-provider behavior and remembered credentials on supported platforms; current authenticated integration uses an isolated config with password stores disabled.
 - [ ] Validate Native AOT publishing and packaged-app behavior for the SVN feature. Release compilation alone does not cover these.

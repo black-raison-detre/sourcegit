@@ -6,11 +6,17 @@ Run the portable regression checks from the repository root:
 dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj
 ```
 
+To iterate only on the repair fake-client checks:
+
+```sh
+dotnet run --project tests/Svn/SourceGit.Svn.Regression.csproj -- --repair-only
+```
+
 The project has no package dependencies. It compiles the production `Svn.cs`,
 `Svn.Connection.cs`, `Svn.History.cs`, `Svn.ChangedPaths.cs`,
 `Svn.FileDiff.cs`, `Svn.Status.cs`, `Svn.Actions.cs`, `Svn.Undo.cs`,
-`Svn.Conflicts.cs`, `Svn.PathOperations.cs`, `Svn.Properties.cs`, and
-`Svn.Changelists.cs` files directly. It uses its own apphost as a fake SVN
+`Svn.Conflicts.cs`, `Svn.PathOperations.cs`, `Svn.Properties.cs`,
+`Svn.Changelists.cs`, and `Svn.Repair.cs` files directly. It uses its own apphost as a fake SVN
 CLI, so the focused checks do not need Subversion installed.
 
 The fake-client checks cover working-copy root discovery and Git precedence,
@@ -81,6 +87,19 @@ failure reporting, output draining, and cancellation. Integration mode creates
 a disposable `file://` repository and checks real assignment, reassignment,
 removal, and clean/added membership while confirming local content, properties,
 and schedules remain unchanged.
+
+Repair checks cover conservative missing-file eligibility, unknown-kind metadata
+verification, exact-root cleanup arguments, cleanup identity and path guards,
+restore/remove revalidation, partial failure, cancellation, and refusal of both
+working and BASE `svn:special` nodes. Rename checks bind destination bytes to a
+preview, reject stale and unsafe selections, preserve source properties and the
+changelist through a reciprocal move, verify committed copy ancestry, and retain
+and report the exact protected backup if a wrapper changes the moved destination
+before SVN exits. An independent local BASE byte snapshot prevents concurrent
+post-revert source edits from being treated as disposable output; fixtures cover
+preservation and reporting of those edits and CRLF/native EOL with expanded
+keywords. The `file://` fixtures also confirm cleanup preserves modified,
+unversioned, and ignored content.
 
 Local text diffs use SVN's internal diff engine and bounded UTF-8 patches;
 invalid UTF-8 or NUL-containing patches are reported as binary. Whitespace

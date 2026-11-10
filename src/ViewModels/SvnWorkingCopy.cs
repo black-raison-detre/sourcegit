@@ -539,6 +539,7 @@ namespace SourceGit.ViewModels
 
         private void NotifyDiffState()
         {
+            NotifyRepairState();
             OnPropertyChanged(nameof(CanAdd));
             OnPropertyChanged(nameof(CanRemove));
             OnPropertyChanged(nameof(CanUndo));

@@ -178,6 +178,42 @@ namespace SourceGit.Views
             menu.Items.Add(CreatePathOperationItem("MoveSvnPath", "Move", "move", vm));
             menu.Items.Add(CreatePathOperationItem("CopySvnPath", "Copy", "copy", vm));
             menu.Items.Add(new MenuItem { Header = "-" });
+            var restoreMissing = new MenuItem
+            {
+                Name = "RestoreMissingSvnFiles",
+                Header = App.Text("SVN.Repair.RestoreMenu"),
+                IsEnabled = vm.CanRestoreMissingFiles,
+            };
+            ExplainDisabledAction(restoreMissing, "SVN.Repair.MissingEligibility");
+            restoreMissing.Click += async (_, _) => await vm.RestoreMissingFilesAsync(message =>
+                SvnOperationDialog.ShowConfirmationAsync(App.Text("SVN.Repair.RestoreTitle"),
+                    App.Text("SVN.Repair.Restore"), message, TopLevel.GetTopLevel(this) as Window));
+            menu.Items.Add(restoreMissing);
+            var removeMissing = new MenuItem
+            {
+                Name = "RemoveMissingSvnFiles",
+                Header = App.Text("SVN.Repair.RemoveMenu"),
+                IsEnabled = vm.CanRemoveMissingFiles,
+            };
+            ExplainDisabledAction(removeMissing, "SVN.Repair.MissingEligibility");
+            removeMissing.Click += async (_, _) => await vm.RemoveMissingFilesAsync(message =>
+                SvnOperationDialog.ShowConfirmationAsync(App.Text("SVN.Repair.RemoveTitle"),
+                    App.Text("SVN.Repair.Remove"), message, TopLevel.GetTopLevel(this) as Window));
+            menu.Items.Add(removeMissing);
+            var repairRename = new MenuItem
+            {
+                Name = "RepairSvnRename",
+                Header = App.Text("SVN.Repair.RenameMenu"),
+                IsEnabled = vm.CanRepairRename,
+            };
+            ExplainDisabledAction(repairRename, "SVN.Repair.RenameEligibility");
+            repairRename.Click += async (_, _) =>
+            {
+                if (vm.CanRepairRename)
+                    await SvnRepairDialog.ShowAsync(vm, vm.SelectedEntries[0].Path, TopLevel.GetTopLevel(this) as Window);
+            };
+            menu.Items.Add(repairRename);
+            menu.Items.Add(new Separator());
             var add = new MenuItem { Header = App.Text("SVN.WorkingCopy.Add"), IsEnabled = vm.CanAdd };
             add.Click += OnAddWorkingCopy;
             ExplainDisabledAction(add, "SVN.WorkingCopy.SelectionEligibility");
@@ -326,6 +362,14 @@ namespace SourceGit.Views
             if (DataContext is ViewModels.SvnRepository repo)
                 await repo.WorkingCopy.RefreshAsync();
 
+            e.Handled = true;
+        }
+
+        private async void OnCleanupWorkingCopy(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is ViewModels.SvnRepository repo)
+                await repo.WorkingCopy.CleanupAsync(message => SvnOperationDialog.ShowConfirmationAsync(
+                    App.Text("SVN.Cleanup.Title"), App.Text("SVN.Cleanup.Run"), message, TopLevel.GetTopLevel(this) as Window));
             e.Handled = true;
         }
 

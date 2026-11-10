@@ -57,12 +57,20 @@ internal static partial class Program
                 return 0;
             }
 
+            if (args.Length == 1 && args[0] == "--repair-only")
+            {
+                await RunRepairFakeChecksAsync().ConfigureAwait(false);
+                Console.WriteLine($"{s_passed} SVN repair fake-client checks passed.");
+                return 0;
+            }
+
             if (args.Length != 0)
                 throw new TestFailureException($"Unknown argument: {args[0]}");
 
             await RunFakeClientChecksAsync().ConfigureAwait(false);
             await RunPropertiesFakeChecksAsync().ConfigureAwait(false);
             await RunChangelistFakeChecksAsync().ConfigureAwait(false);
+            await RunRepairFakeChecksAsync().ConfigureAwait(false);
             Console.WriteLine($"{s_passed} SVN backend regression checks passed.");
             return 0;
         }
@@ -75,7 +83,7 @@ internal static partial class Program
 
     private static bool IsFakeInvocation(string[] args)
     {
-        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "propset" or "propdel" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "resolve" or "update" or "commit" or "move" or "copy" or "changelist" || args.Contains("--version", StringComparer.Ordinal));
+        return args.Length > 0 && (args[0] is "info" or "log" or "proplist" or "propset" or "propdel" or "cat" or "status" or "diff" or "add" or "delete" or "revert" or "resolve" or "update" or "commit" or "move" or "copy" or "changelist" or "cleanup" || args.Contains("--version", StringComparer.Ordinal));
     }
 
     private static async Task<int> RunFakeClientAsync(string[] args)
@@ -96,6 +104,61 @@ internal static partial class Program
 
         if (scenario.StartsWith("wc_properties_", StringComparison.Ordinal))
             return await RunPropertiesFakeInvocationAsync(args, scenario, invocationPath).ConfigureAwait(false);
+
+        if (scenario.StartsWith("wc_repair_", StringComparison.Ordinal))
+        {
+            if (args[0] == "info")
+            {
+                if (args.Contains("--depth", StringComparer.Ordinal))
+                    WriteRepairPathInfo(args);
+                else
+                    WriteRepairWorkingCopyInfo(args, scenario, invocationPath);
+                return 0;
+            }
+            if (args[0] == "status")
+            {
+                if (scenario == "wc_repair_status_fail")
+                {
+                    Console.Error.WriteLine("svn: E155004: synthetic locked working-copy status failure");
+                    return 1;
+                }
+                WriteRepairStatus(scenario);
+                return 0;
+            }
+            if (args[0] == "proplist")
+            {
+                WriteRepairProperties(args);
+                return 0;
+            }
+            if (args[0] == "cleanup")
+            {
+                if (scenario == "wc_repair_cleanup_slow")
+                    await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+                if (scenario == "wc_repair_cleanup_fail")
+                {
+                    Console.Error.WriteLine("svn: E155004: synthetic cleanup failure");
+                    return 1;
+                }
+                return 0;
+            }
+            if (args[0] is "revert" or "delete")
+            {
+                if (scenario == "wc_repair_slow")
+                {
+                    if (!string.IsNullOrEmpty(invocationPath))
+                        await File.WriteAllTextAsync(invocationPath + ".repair-mutation-started", args[0]).ConfigureAwait(false);
+                    await Task.Delay(Timeout.InfiniteTimeSpan).ConfigureAwait(false);
+                }
+                if (scenario == "wc_repair_fail")
+                {
+                    Console.Error.WriteLine($"svn: E200000: synthetic {args[0]} failure after partial processing");
+                    return 1;
+                }
+                return 0;
+            }
+            if (args[0] == "move")
+                return 0;
+        }
 
         if ((args[0] is "add" or "delete" or "revert" or "update" or "commit") && scenario.StartsWith("wc_action_", StringComparison.Ordinal))
         {
@@ -3001,6 +3064,7 @@ internal static partial class Program
 
             await RunWorkingCopyActionIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunChangelistIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
+            await RunRepairIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunPathOperationIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunWorkingCopyConflictIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
             await RunPropertiesIntegrationAsync(svn, svnadmin, temp.Path).ConfigureAwait(false);
@@ -4204,6 +4268,22 @@ internal static partial class Program
         return processPath;
     }
 
+    private static string ResolvePhysicalDirectory(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(fullPath);
+        var current = root;
+        var relative = Path.GetRelativePath(root, fullPath);
+        foreach (var component in relative.Split(
+                     new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            var directory = new DirectoryInfo(Path.Combine(current, component));
+            current = directory.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? directory.FullName;
+        }
+        return Path.GetFullPath(current);
+    }
+
     private static string PrepareScenario(string directory, string scenario)
     {
         var invocationPath = Path.Combine(directory, $"calls-{Guid.NewGuid():N}.jsonl");
@@ -4434,7 +4514,8 @@ internal static partial class Program
 
         public TemporaryDirectory(string prefix)
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}");
+            var physicalTempRoot = ResolvePhysicalDirectory(System.IO.Path.GetTempPath());
+            Path = System.IO.Path.Combine(physicalTempRoot, $"{prefix}-{Guid.NewGuid():N}");
             Directory.CreateDirectory(Path);
         }
 
