@@ -274,6 +274,10 @@ dotnet build
 dotnet run --project src/SourceGit.csproj
 ```
 
+For local UI development, quit any running SourceGit instance, then run `./dev.sh` to build and launch the Debug app without publishing. SourceGit uses a single instance, so an already-running app would receive the launch instead of opening the new build. Close the app and rerun the script after making changes.
+
+Use `./dev.sh --no-build` to reopen the existing Debug build without compiling. The script also works when invoked by its full path from another directory.
+
 Thanks to all the people who contribute.
 
 [![Contributors](https://contrib.rocks/image?repo=sourcegit-scm/sourcegit&columns=20)](https://github.com/sourcegit-scm/sourcegit/graphs/contributors)
